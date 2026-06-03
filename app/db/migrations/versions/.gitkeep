@@ -1,0 +1,11 @@
+"""
+app/db/migrations/versions/.gitkeep
+─────────────────────────────────────
+Placeholder — Alembic will generate migration files here.
+
+To create your first migration after defining models, run:
+    alembic revision --autogenerate -m "initial_schema"
+
+To apply migrations:
+    alembic upgrade head
+"""
