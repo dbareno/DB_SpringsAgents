@@ -38,7 +38,7 @@ class Settings(BaseSettings):
 
     # ── LLM Orchestration ──────────────────────────────────────────────────
     llm_priority_order_raw: str = Field(
-        "gemini,grok,openai,anthropic,ollama",
+        "ollama,gemini,grok,openai,anthropic",
         alias="LLM_PRIORITY_ORDER",
         description="Comma-separated ordered list of LLM provider keys",
     )
@@ -74,7 +74,7 @@ class Settings(BaseSettings):
 
     # ── Ollama (local fallback) ────────────────────────────────────────────
     ollama_base_url: str = Field("http://localhost:11434", alias="OLLAMA_BASE_URL")
-    ollama_model: str = Field("qwen2.5:3b", alias="OLLAMA_MODEL")
+    ollama_model: str = Field("qwen2.5:7b", alias="OLLAMA_MODEL")
 
     # ── PostgreSQL ─────────────────────────────────────────────────────────
     postgres_url: str = Field(

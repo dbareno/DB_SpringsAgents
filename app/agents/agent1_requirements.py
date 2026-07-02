@@ -32,49 +32,68 @@ from app.schemas.state import AgentState, SpringType, UserRequirements
 
 logger = logging.getLogger(__name__)
 
-_SYSTEM_PROMPT = """You are a mechanical engineering requirements analyst.
-Your task is to extract structured spring design parameters from the user's
-natural-language input.
+_SYSTEM_PROMPT = """Extract spring design parameters from the user's text.
+Return ONLY valid JSON — no markdown fences, no extra text.
 
-RULES:
-1. Return ONLY valid JSON — no markdown fences, no extra text.
-2. If a value is not mentioned, set it to null.
-3. Infer spring_type from context clues (compression, extension, torsion,
-   spiral, wave). If unclear, use "unknown".
-4. Set is_complete to false if any of these are missing:
-   - load_force_n OR spring_rate_n_mm
-   - deflection_mm OR spring_rate_n_mm
-   If all critical parameters can be reasonably inferred, set is_complete to true.
-5. Generate 1–3 targeted clarification_questions for each missing critical field.
+Put null for values not mentioned. Infer spring_type from context
+(compression/extension/torsion/spiral/wave). Default to compression if unclear.
+Set corrosion_resistant and cyclic_load to false unless the user says otherwise.
 
-JSON schema to return:
+JSON:
 {
-  "spring_type": "<compression|extension|torsion|spiral|wave|unknown>",
-  "load_force_n": <float|null>,
-  "deflection_mm": <float|null>,
-  "spring_rate_n_mm": <float|null>,
-  "max_outer_diameter_mm": <float|null>,
-  "max_free_length_mm": <float|null>,
-  "solid_length_mm": <float|null>,
-  "operating_temperature_c": <float|null>,
-  "corrosion_resistant": <bool>,
-  "cyclic_load": <bool>,
-  "cycles_expected": <int|null>,
-  "clarification_questions": [<string>, ...],
-  "is_complete": <bool>
+  "spring_type": "...",
+  "load_force_n": <float or null>,
+  "deflection_mm": <float or null>,
+  "spring_rate_n_mm": <float or null>,
+  "max_outer_diameter_mm": <float or null>,
+  "max_free_length_mm": <float or null>,
+  "solid_length_mm": <float or null>,
+  "operating_temperature_c": <float or null>,
+  "corrosion_resistant": <false>,
+  "cyclic_load": <false>,
+  "cycles_expected": <int or null>,
+  "clarification_questions": []
 }"""
+
+
+def _determine_completeness(data: dict) -> tuple[bool, list[str]]:
+    """
+    Determine if requirements are complete enough for design, and generate
+    clarification questions for missing critical fields.
+
+    Critical fields:
+      - load_force_n OR spring_rate_n_mm
+      - deflection_mm OR spring_rate_n_mm
+
+    Returns (is_complete, clarification_questions).
+    """
+    has_load = data.get("load_force_n") is not None
+    has_rate = data.get("spring_rate_n_mm") is not None
+    has_deflection = data.get("deflection_mm") is not None
+    spring_type = data.get("spring_type", "unknown")
+
+    questions: list[str] = []
+
+    if not has_load and not has_rate:
+        questions.append("What load force (in Newtons) does the spring need to support?")
+    elif not has_load:
+        questions.append("What load force (in Newtons) does the spring need to support?")
+
+    if not has_deflection and not has_rate:
+        questions.append("How much deflection (in mm) do you need?")
+
+    if spring_type in ("unknown", "unknown"):
+        questions.append("What type of spring is this? (compression, extension, or torsion)")
+
+    # For a valid design we need: (load OR rate) AND (deflection OR rate)
+    is_complete = (has_load or has_rate) and (has_deflection or has_rate)
+
+    return is_complete, questions
 
 
 def requirements_analyst_node(state: AgentState) -> dict:
     """
     LangGraph node function for Agent 1.
-
-    Args:
-        state: Current graph state.
-
-    Returns:
-        Partial state dict with updated ``requirements``, ``current_step``,
-        ``messages``, and ``errors``.
     """
     logger.info("[Agent 1] Requirements Analyst started.")
     factory = get_factory()
@@ -92,7 +111,7 @@ def requirements_analyst_node(state: AgentState) -> dict:
         HumanMessage(content=raw_input),
     ]
 
-    max_attempts = len(factory._priority_order) + 1  # one full rotation + spare
+    max_attempts = len(factory._priority_order) + 1
     for attempt in range(max_attempts):
         try:
             llm = factory.get_llm()
@@ -104,12 +123,19 @@ def requirements_analyst_node(state: AgentState) -> dict:
                 raw_json = raw_json.split("```")[1].lstrip("json").strip()
 
             data = json.loads(raw_json)
+
+            # ── Override: programmatic completeness, not LLM's guess ──────
+            is_complete, questions = _determine_completeness(data)
+            data["is_complete"] = is_complete
+            data["clarification_questions"] = questions
+
             requirements = UserRequirements(raw_input=raw_input, **data)
 
             logger.info(
-                "[Agent 1] Extraction complete. is_complete=%s, spring_type=%s",
+                "[Agent 1] Extraction complete. is_complete=%s, spring_type=%s, questions=%d",
                 requirements.is_complete,
                 requirements.spring_type,
+                len(requirements.clarification_questions),
             )
 
             return {
@@ -119,7 +145,6 @@ def requirements_analyst_node(state: AgentState) -> dict:
             }
 
         except json.JSONDecodeError:
-            # Non-recoverable: LLM returned malformed JSON
             logger.error("[Agent 1] LLM returned invalid JSON on attempt %d/%d", attempt + 1, max_attempts)
             if attempt < max_attempts - 1:
                 continue
@@ -127,19 +152,19 @@ def requirements_analyst_node(state: AgentState) -> dict:
 
         except Exception as exc:
             try:
-                factory = rotate_llm_on_quota_error(exc)
+                rotate_llm_on_quota_error(exc)
                 logger.warning("[Agent 1] Rotated LLM after error: %s", exc)
                 continue
             except RuntimeError as all_exhausted:
                 return _build_error(state, type(exc).__name__, str(all_exhausted))
             except Exception as non_quota_error:
-                # Non-quota error (e.g. connection error, auth failure) — try next provider
                 logger.warning(
                     "[Agent 1] Non-quota error on attempt %d/%d: %s",
                     attempt + 1, max_attempts, non_quota_error,
                 )
                 if attempt < max_attempts - 1:
-                    factory = factory.next_provider() if hasattr(factory, 'next_provider') else factory
+                    if hasattr(factory, 'next_provider'):
+                        factory.next_provider()
                     continue
                 return _build_error(state, type(non_quota_error).__name__, str(non_quota_error))
 

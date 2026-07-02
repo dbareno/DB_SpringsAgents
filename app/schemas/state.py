@@ -14,7 +14,7 @@ from typing import Annotated, Any
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -65,6 +65,12 @@ class UserRequirements(BaseModel):
     is_complete: bool = Field(
         False, description="True when Agent 1 judges inputs sufficient for design"
     )
+
+    @field_validator("corrosion_resistant", "cyclic_load", mode="before")
+    @classmethod
+    def coerce_none_to_false(cls, v: object) -> bool:
+        """Convert null/missing to False so LLMs that omit these don't crash."""
+        return bool(v) if v is not None else False
 
     class Config:
         use_enum_values = True
@@ -155,7 +161,7 @@ class CommercialScore(BaseModel):
 class LLMProviderStatus(BaseModel):
     """Tracks which provider is active and which have failed."""
 
-    active_provider: str = Field("gemini", description="Currently active LLM provider")
+    active_provider: str = Field("ollama", description="Currently active LLM provider")
     failed_providers: list[str] = Field(default_factory=list)
     retry_count: int = 0
     max_retries: int = 5

@@ -101,8 +101,16 @@ class DesignService:
                 detail=f"Session '{session_id}' not found.",
             )
 
+        # Retrieve the original clarification questions from the project's
+        # final_report so the LLM sees both Q&A, not just raw answers.
+        final_report = project.final_report or {}
+        prev_questions = final_report.get("clarification_questions", [])
+        qa_block = ""
+        if prev_questions:
+            qa_lines = "\n".join(f"  Q{i+1}. {q}" for i, q in enumerate(prev_questions))
+            qa_block = f"\nOriginal questions:\n{qa_lines}\n"
         combined_input = (
-            f"{project.raw_user_input}\n\nAdditional information: {answers}"
+            f"{project.raw_user_input}{qa_block}\nYour answers: {answers}"
         )
 
         state = initial_state(combined_input)
