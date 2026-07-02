@@ -92,7 +92,8 @@ def requirements_analyst_node(state: AgentState) -> dict:
         HumanMessage(content=raw_input),
     ]
 
-    for attempt in range(factory._settings.llm_max_tokens):  # use retry budget
+    max_attempts = len(factory._priority_order) + 1  # one full rotation + spare
+    for attempt in range(max_attempts):
         try:
             llm = factory.get_llm()
             response = llm.invoke(messages)
@@ -117,21 +118,41 @@ def requirements_analyst_node(state: AgentState) -> dict:
                 "messages": [response],
             }
 
+        except json.JSONDecodeError:
+            # Non-recoverable: LLM returned malformed JSON
+            logger.error("[Agent 1] LLM returned invalid JSON on attempt %d/%d", attempt + 1, max_attempts)
+            if attempt < max_attempts - 1:
+                continue
+            return _build_error(state, "InvalidJSON", "LLM returned invalid JSON after all attempts")
+
         except Exception as exc:
             try:
                 factory = rotate_llm_on_quota_error(exc)
                 logger.warning("[Agent 1] Rotated LLM after error: %s", exc)
                 continue
             except RuntimeError as all_exhausted:
-                error_entry = {
-                    "step": "requirements_analyst",
-                    "error_type": type(exc).__name__,
-                    "message": str(all_exhausted),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-                logger.error("[Agent 1] All providers exhausted: %s", all_exhausted)
-                return {
-                    "current_step": "requirements_analyst_failed",
-                    "errors": state.get("errors", []) + [error_entry],
-                }
-        break  # only runs if no exception
+                return _build_error(state, type(exc).__name__, str(all_exhausted))
+            except Exception as non_quota_error:
+                # Non-quota error (e.g. connection error, auth failure) — try next provider
+                logger.warning(
+                    "[Agent 1] Non-quota error on attempt %d/%d: %s",
+                    attempt + 1, max_attempts, non_quota_error,
+                )
+                if attempt < max_attempts - 1:
+                    factory = factory.next_provider() if hasattr(factory, 'next_provider') else factory
+                    continue
+                return _build_error(state, type(non_quota_error).__name__, str(non_quota_error))
+
+
+def _build_error(state: AgentState, error_type: str, message: str) -> dict:
+    """Build error return dict for Agent 1 failures."""
+    logger.error("[Agent 1] %s: %s", error_type, message)
+    return {
+        "current_step": "requirements_analyst_failed",
+        "errors": state.get("errors", []) + [{
+            "step": "requirements_analyst",
+            "error_type": error_type,
+            "message": message,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }],
+    }
