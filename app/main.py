@@ -86,6 +86,32 @@ app.add_middleware(
 # ── Routers ───────────────────────────────────────────────────────────────
 app.include_router(design_router)
 
+# ── Serve frontend static build (standalone .exe mode) ───────────────────
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
+
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "out")
+
+if os.path.isdir(FRONTEND_DIR):
+    logger.info("Frontend static build detected at %s — serving SPA.", FRONTEND_DIR)
+
+    # Mount Next.js static chunks (must be mounted before catch-all)
+    next_static = os.path.join(FRONTEND_DIR, "_next")
+    if os.path.isdir(next_static):
+        app.mount("/_next", StaticFiles(directory=next_static), name="frontend_next")
+
+    # SPA catch-all: serve index.html for any non-API path
+    @app.get("/{full_path:path}", response_model=None)
+    async def serve_frontend(full_path: str) -> FileResponse | JSONResponse:
+        # Let API routes through untouched
+        if full_path.startswith(("api/", "docs", "redoc", "openapi", "health")):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+        index_path = os.path.join(FRONTEND_DIR, "index.html")
+        if os.path.isfile(index_path):
+            return FileResponse(index_path, media_type="text/html")
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Root & health endpoints
