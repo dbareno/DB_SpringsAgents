@@ -1,0 +1,74 @@
+"""
+app/schemas/design.py
+─────────────────────────────────────────────────────────────────────────────
+Pydantic models for the Spring Design API request/response contracts.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class DesignRequest(BaseModel):
+    """Payload for starting a new spring design workflow."""
+
+    user_input: str = Field(
+        ...,
+        min_length=5,
+        description=(
+            "Natural-language spring requirements. Can be vague or ultra-precise. "
+            "Examples: 'I need a compression spring that supports 50N with 10mm deflection' "
+            "or 'small spring for a ballpoint pen'."
+        ),
+        examples=[
+            "Design a compression spring to support 120 N with 15 mm deflection. "
+            "Max outer diameter 25 mm, must be corrosion resistant, stainless preferred."
+        ],
+    )
+    max_iterations: int = Field(
+        5,
+        ge=1,
+        le=10,
+        description="Maximum number of redesign iterations before giving up.",
+    )
+    session_id: str | None = Field(
+        None,
+        description="Optional session identifier for resuming a clarification flow.",
+    )
+
+
+class ClarifyRequest(BaseModel):
+    """Payload for resuming a paused (needs_clarification) workflow."""
+
+    session_id: str = Field(
+        ..., description="Session ID returned by the initial POST."
+    )
+    answers: str = Field(
+        ...,
+        description=(
+            "Free-text answers to the clarification questions. "
+            "The system will merge them with the original input."
+        ),
+    )
+
+
+class DesignResponse(BaseModel):
+    """Response from the design endpoint."""
+
+    session_id: str
+    status: str = Field(
+        description=(
+            "One of: 'approved', 'needs_clarification', "
+            "'iteration_limit_reached', 'error'."
+        )
+    )
+    report: dict[str, Any] | None = Field(
+        None, description="Full design report (only present when status='approved')."
+    )
+    clarification_questions: list[str] | None = Field(
+        None,
+        description="Questions to ask the user (only when status='needs_clarification').",
+    )
+    errors: list[dict[str, Any]] | None = None
