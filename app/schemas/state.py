@@ -129,6 +129,14 @@ class ComplianceReport(BaseModel):
         default_factory=list,
         description="Actionable redesign hints for Agent 2 if rejected",
     )
+    retrieved_standards: list[str] = Field(
+        default_factory=list,
+        description="Normative clause text retrieved from ChromaDB for this validation",
+    )
+    standards_referenced: list[str] = Field(
+        default_factory=list,
+        description="Standard IDs (e.g. 'BS-EN-13906-1', 'DIN EN 10270-1') that were consulted",
+    )
 
 
 class CommercialScore(BaseModel):

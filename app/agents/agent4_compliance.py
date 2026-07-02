@@ -7,11 +7,14 @@ Responsibilities
 ────────────────
 * Run the ``compliance_verification_tool`` against the current geometry +
   material combination.
+* Query ChromaDB for relevant normative clauses to enrich the compliance
+  assessment with documented standard references.
 * If APPROVED → advance graph toward Agent 5.
 * If REJECTED → translate the raw failure modes into actionable redesign
   directives and set ``current_step = "redesign_needed"`` so the Orchestrator
   (Agent 6) loops back to Agent 2.
-* Uses the LLM to produce a human-friendly compliance summary paragraph.
+* Uses the LLM to produce a human-friendly compliance summary paragraph that
+  includes a Normative References section citing the actual standards.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from datetime import datetime, timezone
 from langchain_core.messages import AIMessage
 
 from app.core.llm_factory import get_factory, rotate_llm_on_quota_error
+from app.db.chromadb_client import query_standards
 from app.schemas.state import AgentState, ComplianceReport
 from app.tools.spring_tools import compliance_verification_tool
 
@@ -40,6 +44,8 @@ def normative_inspector_node(state: AgentState) -> dict:
     if geometry is None or material is None:
         return _error(state, "MissingDependencies", "geometry or material is None")
 
+    spring_type = requirements.spring_type if requirements else "compression"
+
     tool_input = {
         "wire_diameter_mm": geometry.wire_diameter_mm,
         "mean_coil_diameter_mm": geometry.mean_coil_diameter_mm,
@@ -49,7 +55,7 @@ def normative_inspector_node(state: AgentState) -> dict:
         "load_force_n": requirements.load_force_n if requirements else 0.0,
         "yield_strength_mpa": material.yield_strength_mpa,
         "shear_modulus_gpa": material.shear_modulus_gpa,
-        "spring_type": requirements.spring_type if requirements else "compression",
+        "spring_type": spring_type,
         "cyclic_load": requirements.cyclic_load if requirements else False,
     }
 
@@ -79,8 +85,17 @@ def normative_inspector_node(state: AgentState) -> dict:
         redesign_directives=report_data.get("redesign_directives", []),
     )
 
+    # ── Query ChromaDB for normative clauses ──────────────────────────────
+    retrieved_clauses = _retrieve_normative_clauses(spring_type, geometry)
+    compliance.retrieved_standards = [c["document"] for c in retrieved_clauses]
+    compliance.standards_referenced = list({
+        c["metadata"].get("standard", "unknown")
+        for c in retrieved_clauses
+        if c.get("metadata")
+    })
+
     # ── Generate LLM narrative summary ────────────────────────────────────
-    narrative = _generate_narrative(compliance)
+    narrative = _generate_narrative(compliance, retrieved_clauses)
 
     status_label = "APPROVED ✓" if compliance.approved else "REJECTED ✗"
     logger.info(
@@ -98,7 +113,57 @@ def normative_inspector_node(state: AgentState) -> dict:
     }
 
 
-def _generate_narrative(compliance: ComplianceReport) -> str:
+def _retrieve_normative_clauses(
+    spring_type: str,
+    geometry: object,
+) -> list[dict]:
+    """
+    Query ChromaDB for normative clauses relevant to the current design.
+
+    Builds query texts from the spring type, geometry properties, and common
+    compliance checks (shear stress limits, spring index, slenderness, fatigue).
+
+    Returns:
+        List of result dicts from ``query_standards``, or empty list on failure.
+    """
+    # Build a natural-language query that captures the core compliance concerns
+    query_parts: list[str] = [
+        f"{spring_type} spring design",
+        "shear stress limits and safety factors",
+        "spring index C range requirements",
+        "slenderness and buckling prevention",
+    ]
+
+    if hasattr(geometry, "wire_diameter_mm") and geometry.wire_diameter_mm:
+        query_parts.append(
+            f"wire diameter {geometry.wire_diameter_mm} mm"
+        )
+
+    query_text = " ".join(query_parts)
+
+    try:
+        results = query_standards(
+            query_text=query_text,
+            spring_type=spring_type,
+            n_results=5,
+        )
+        logger.info(
+            "[Agent 4] Retrieved %d normative clauses from ChromaDB.",
+            len(results),
+        )
+        return results
+    except Exception as exc:
+        logger.warning(
+            "[Agent 4] ChromaDB query failed (falling back to hardcoded checks): %s",
+            exc,
+        )
+        return []
+
+
+def _generate_narrative(
+    compliance: ComplianceReport,
+    retrieved_clauses: list[dict],
+) -> str:
     """Build a concise human-readable compliance summary."""
     lines = [
         f"**Compliance Check ({compliance.applicable_standard})**",
@@ -114,6 +179,28 @@ def _generate_narrative(compliance: ComplianceReport) -> str:
     if compliance.redesign_directives:
         lines.append("\n**Redesign directives for next iteration:**")
         lines.extend(f"  → {rd}" for rd in compliance.redesign_directives)
+
+    # ── Normative References (from ChromaDB) ──────────────────────────────
+    if retrieved_clauses:
+        lines.append("\n**Normative References (retrieved from standards corpus):**")
+        seen_sections: set[str] = set()
+        for clause in retrieved_clauses:
+            meta = clause.get("metadata", {}) or {}
+            section_label = f"{meta.get('standard', '?')} §{meta.get('section', '?')}"
+            if section_label not in seen_sections:
+                seen_sections.add(section_label)
+                lines.append(f"  – {section_label}")
+        lines.append(
+            "\n_These clauses were retrieved from the DIN/BS EN standards corpus "
+            "via ChromaDB and supplement the hardcoded compliance checks._"
+        )
+
+    if compliance.standards_referenced:
+        lines.append(
+            "\n**Standards consulted:** "
+            + ", ".join(compliance.standards_referenced)
+        )
+
     return "\n".join(lines)
 
 

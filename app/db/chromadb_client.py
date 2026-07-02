@@ -151,11 +151,17 @@ _STANDARD_DOCUMENTS: list[dict[str, Any]] = [
 ]
 
 
-def ingest_standards(force: bool = False) -> int:
+def ingest_standards(
+    documents: list[dict[str, Any]] | None = None,
+    force: bool = False,
+) -> int:
     """
     Ingest normative standard documents into ChromaDB.
 
     Args:
+        documents: List of doc dicts with ``id``, ``document``, and ``metadata`` keys.
+                   If ``None``, uses the internal stub list (``_STANDARD_DOCUMENTS``)
+                   for backward compatibility.
         force: If True, delete and re-ingest all documents.
 
     Returns:
@@ -164,19 +170,19 @@ def ingest_standards(force: bool = False) -> int:
     collection = get_standards_collection()
 
     if force:
-        # Clear existing documents
         existing = collection.get()
         if existing["ids"]:
             collection.delete(ids=existing["ids"])
             logger.info("Cleared %d existing standard documents.", len(existing["ids"]))
 
-    # Check what's already there
+    docs = documents if documents is not None else _STANDARD_DOCUMENTS
+
     existing = collection.get()
     existing_ids = set(existing.get("ids", []))
 
-    to_ingest = [doc for doc in _STANDARD_DOCUMENTS if doc["id"] not in existing_ids]
+    to_ingest = [doc for doc in docs if doc["id"] not in existing_ids]
     if not to_ingest:
-        logger.info("All %d standards already ingested. Skipping.", len(_STANDARD_DOCUMENTS))
+        logger.info("All %d standards already ingested. Skipping.", len(docs))
         return 0
 
     collection.add(
@@ -195,7 +201,7 @@ def ingest_standards(force: bool = False) -> int:
 
 def query_standards(
     query_text: str,
-    spring_type: str = "compression",
+    spring_type: str | list[str] = "compression",
     n_results: int = 3,
 ) -> list[dict[str, Any]]:
     """
@@ -203,35 +209,86 @@ def query_standards(
 
     Args:
         query_text:   Natural-language description of the design condition to check.
-        spring_type:  Filter by spring type metadata.
+        spring_type:  Spring type(s) to filter by — a single string or a list of
+                      strings. Also always includes clauses tagged ``"all"``.
         n_results:    Number of top results to return.
 
     Returns:
-        List of dicts with ``document``, ``metadata``, and ``distance`` keys.
+        List of dicts with ``document``, ``metadata``, ``distance``, and
+        ``chunk_id`` keys. Empty list on error.
     """
     collection = get_standards_collection()
 
-    where_filter: dict[str, Any] = {
-        "$or": [
-            {"spring_type": {"$eq": spring_type}},
-            {"spring_type": {"$eq": "all"}},
-        ]
-    }
+    # Build a $or filter for the requested spring type(s) + "all"
+    types = [spring_type] if isinstance(spring_type, str) else spring_type
+    or_conditions: list[dict[str, Any]] = [
+        {"spring_type": {"$eq": t}} for t in types
+    ]
+    if "all" not in types:
+        or_conditions.append({"spring_type": {"$eq": "all"}})
+    where_filter: dict[str, Any] = {"$or": or_conditions}
 
     try:
+        n_available = collection.count()
+        if n_available == 0:
+            logger.info("ChromaDB standards collection is empty. No clauses to query.")
+            return []
+
         results = collection.query(
             query_texts=[query_text],
-            n_results=min(n_results, collection.count() or 1),
+            n_results=min(n_results, n_available),
             where=where_filter,
         )
         output = []
-        for i, doc in enumerate(results.get("documents", [[]])[0]):
+        ids_raw = results.get("ids", [[]])[0]
+        docs_raw = results.get("documents", [[]])[0]
+        metas_raw = results.get("metadatas", [[]])[0]
+        dists_raw = results.get("distances", [[]])[0]
+        for i in range(len(docs_raw)):
             output.append({
-                "document": doc,
-                "metadata": results.get("metadatas", [[]])[0][i],
-                "distance": results.get("distances", [[]])[0][i],
+                "chunk_id": ids_raw[i] if i < len(ids_raw) else None,
+                "document": docs_raw[i],
+                "metadata": metas_raw[i] if i < len(metas_raw) else {},
+                "distance": float(dists_raw[i]) if i < len(dists_raw) else 0.0,
             })
         return output
     except Exception as exc:
         logger.warning("ChromaDB query failed: %s. Returning empty results.", exc)
         return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Collection statistics
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def get_standards_collection_stats() -> dict[str, Any]:
+    """
+    Return statistics about the spring-standards ChromaDB collection.
+
+    Returns:
+        A dict with:
+        - ``total_documents``: total number of chunks stored.
+        - ``by_standard``: dict mapping standard name → chunk count.
+        - ``by_spring_type``: dict mapping spring type → chunk count.
+    """
+    collection = get_standards_collection()
+    all_data = collection.get()
+    ids = all_data.get("ids", [])
+    metadatas = all_data.get("metadatas", [])
+
+    by_standard: dict[str, int] = {}
+    by_spring_type: dict[str, int] = {}
+
+    for meta in metadatas:
+        std = meta.get("standard", "unknown") if meta else "unknown"
+        by_standard[std] = by_standard.get(std, 0) + 1
+
+        st = meta.get("spring_type", "unknown") if meta else "unknown"
+        by_spring_type[st] = by_spring_type.get(st, 0) + 1
+
+    return {
+        "total_documents": len(ids),
+        "by_standard": dict(sorted(by_standard.items())),
+        "by_spring_type": dict(sorted(by_spring_type.items())),
+    }
