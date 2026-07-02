@@ -90,7 +90,7 @@ export default function DesignResult({ report }: DesignResultProps) {
 
       {/* Metadatos */}
       <div className="text-xs text-zinc-600 text-right">
-        Generado: {new Date(report.generated_at).toLocaleString('es-AR')}
+        Generado: {new Date(report.generated_at).toLocaleString('es')}
       </div>
     </div>
   );

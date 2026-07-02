@@ -94,9 +94,22 @@ export interface Report {
 
 export interface DesignResponse {
   session_id: string;
-  status: 'approved' | 'needs_clarification' | 'iteration_limit_reached' | 'error';
+  status:
+    | 'processing'
+    | 'approved'
+    | 'needs_clarification'
+    | 'iteration_limit_reached'
+    | 'error';
   report: Report | null;
   clarification_questions: string[] | null;
+}
+
+export interface StepProgress {
+  session_id: string;
+  status: string;
+  current_step: string | null;
+  progress_pct: number;
+  error: string | null;
 }
 
 export interface HealthResponse {
@@ -113,3 +126,44 @@ export type FormStatus =
   | 'success'
   | 'error'
   | 'backend_offline';
+
+// ─── Pipeline steps ─────────────────────────────────────────────────────────
+export interface PipelineStep {
+  id: string;
+  label: string;
+  description: string;
+  icon: string;
+}
+
+export const PIPELINE_STEPS: PipelineStep[] = [
+  {
+    id: 'requirements_analyst',
+    label: 'Requisitos',
+    description: 'Analizando requerimientos del resorte',
+    icon: '📋',
+  },
+  {
+    id: 'materials_engineer',
+    label: 'Materiales',
+    description: 'Seleccionando material óptimo',
+    icon: '🔬',
+  },
+  {
+    id: 'design_engineer',
+    label: 'Diseño',
+    description: 'Calculando geometría del resorte',
+    icon: '📐',
+  },
+  {
+    id: 'normative_inspector',
+    label: 'Normativa',
+    description: 'Verificando cumplimiento normativo',
+    icon: '✅',
+  },
+  {
+    id: 'commercial_optimiser',
+    label: 'Comercial',
+    description: 'Optimizando costo y rendimiento',
+    icon: '💰',
+  },
+];

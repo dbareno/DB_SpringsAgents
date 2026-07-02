@@ -1,41 +1,42 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Spring Design Agent – Frontend (Next.js)
+# Spring Design Agent – Frontend (Next.js static export via nginx)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Stage 1: Dependencies ──────────────────────────────────────────────────
-FROM node:20-alpine AS deps
-WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci --only=production
-
-# ── Stage 2: Build ─────────────────────────────────────────────────────────
+# ── Stage 1: Build ─────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 WORKDIR /app
+
 COPY package.json package-lock.json* ./
 RUN npm ci
+
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-# ── Stage 3: Production ────────────────────────────────────────────────────
-FROM node:20-alpine AS runner
-WORKDIR /app
+# ── Stage 2: nginx ─────────────────────────────────────────────────────────
+FROM nginx:alpine AS runner
+WORKDIR /usr/share/nginx/html
 
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
+# Copiar el export estático (output: export → genera out/)
+COPY --from=builder /app/out ./
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+# Configuración mínima de nginx: SPA fallback + compresión
+COPY <<'EOF' /etc/nginx/conf.d/default.conf
+server {
+    listen       3000;
+    server_name  localhost;
 
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
 
-USER nextjs
+    location / {
+        root   /usr/share/nginx/html;
+        index  index.html index.htm;
+        try_files $uri $uri/ /index.html;
+    }
+}
+EOF
 
 EXPOSE 3000
 
-ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
-
-CMD ["node", "server.js"]
+CMD ["nginx", "-g", "daemon off;"]

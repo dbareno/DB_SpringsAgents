@@ -75,7 +75,7 @@ export default function DesignHistory({ onSelect }: DesignHistoryProps) {
           >
             <span className="truncate">{entry.label}</span>
             <span className="shrink-0 text-xs text-zinc-600">
-              {new Date(entry.timestamp).toLocaleDateString('es-AR')}
+              {new Date(entry.timestamp).toLocaleDateString('es')}
             </span>
           </button>
         ))}

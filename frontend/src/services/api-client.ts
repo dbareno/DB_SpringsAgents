@@ -84,7 +84,7 @@ export class BaseApiClient {
 
       if (error instanceof TypeError && error.message.includes('fetch')) {
         throw new NetworkError(
-          'No se pudo conectar con el servidor. Verificá que el backend esté corriendo en ' +
+          'No se pudo conectar con el servidor. Verifica que el backend esté corriendo en ' +
             `${this.baseUrl}`,
           error
         );

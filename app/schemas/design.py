@@ -45,12 +45,45 @@ class ClarifyRequest(BaseModel):
     session_id: str = Field(
         ..., description="Session ID returned by the initial POST."
     )
-    answers: str = Field(
+    answers: list[str] = Field(
         ...,
+        min_length=1,
         description=(
-            "Free-text answers to the clarification questions. "
-            "The system will merge them with the original input."
+            "Array of answers, one per clarification question, in the same order "
+            "as the questions were presented. The system will pair each answer "
+            "with its corresponding question."
         ),
+    )
+
+
+class StepProgress(BaseModel):
+    """Current step progress for the polling endpoint."""
+
+    session_id: str
+    status: str = Field(
+        description=(
+            "'processing' while the graph runs, "
+            "'completed' when the final result is ready, "
+            "'error' if execution failed."
+        )
+    )
+    current_step: str | None = Field(
+        None,
+        description=(
+            "Current graph node: 'requirements_analyst', 'materials_engineer', "
+            "'design_engineer', 'normative_inspector', 'commercial_optimiser', "
+            "'awaiting_clarification', or 'iteration_limit_reached'."
+        ),
+    )
+    progress_pct: int = Field(
+        0,
+        ge=0,
+        le=100,
+        description="Approximate progress percentage for the frontend pipeline.",
+    )
+    error: str | None = Field(
+        None,
+        description="Error message if status is 'error'.",
     )
 
 
@@ -60,7 +93,7 @@ class DesignResponse(BaseModel):
     session_id: str
     status: str = Field(
         description=(
-            "One of: 'approved', 'needs_clarification', "
+            "One of: 'processing', 'approved', 'needs_clarification', "
             "'iteration_limit_reached', 'error'."
         )
     )

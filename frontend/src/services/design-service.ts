@@ -5,7 +5,11 @@
  */
 
 import { BaseApiClient, NetworkError } from './api-client';
-import type { DesignResponse, HealthResponse } from './types';
+import type {
+  DesignResponse,
+  HealthResponse,
+  StepProgress,
+} from './types';
 
 export class DesignService {
   private readonly client: BaseApiClient;
@@ -16,9 +20,8 @@ export class DesignService {
 
   /**
    * Inicia un nuevo proceso de diseño a partir de la entrada del usuario.
-   * @param userInput - Descripción natural del resorte deseado
-   * @param maxIterations - Iteraciones máximas (default: 5)
-   * @param sessionId - ID de sesión opcional para continuar una existente
+   * El backend ejecuta el grafo en background. Retorna inmediatamente
+   * con status='processing'; usa getDesignStatus() para hacer polling.
    */
   async startDesign(
     userInput: string,
@@ -33,9 +36,12 @@ export class DesignService {
   }
 
   /**
-   * Envía respuestas a preguntas de clarificación.
+   * Envía respuestas a preguntas de clarificación como array de strings.
    */
-  async clarifyDesign(sessionId: string, answers: string): Promise<DesignResponse> {
+  async clarifyDesign(
+    sessionId: string,
+    answers: string[]
+  ): Promise<DesignResponse> {
     return this.client.post<DesignResponse>('/api/v1/design/clarify', {
       session_id: sessionId,
       answers,
@@ -43,10 +49,21 @@ export class DesignService {
   }
 
   /**
-   * Recupera un diseño previamente cacheados por session_id.
+   * Hace polling al estado de progreso del diseño.
+   */
+  async getDesignStatus(sessionId: string): Promise<StepProgress> {
+    return this.client.get<StepProgress>(
+      `/api/v1/design/${encodeURIComponent(sessionId)}/status`
+    );
+  }
+
+  /**
+   * Recupera un diseño previamente completado por session_id.
    */
   async getDesign(sessionId: string): Promise<DesignResponse> {
-    return this.client.get<DesignResponse>(`/api/v1/design/${encodeURIComponent(sessionId)}`);
+    return this.client.get<DesignResponse>(
+      `/api/v1/design/${encodeURIComponent(sessionId)}`
+    );
   }
 
   /**
@@ -58,7 +75,6 @@ export class DesignService {
 
   /**
    * Verifica si el backend está alcanzable.
-   * Útil para mostrar estado "backend offline" sin romper la UX.
    */
   async checkHealth(): Promise<boolean> {
     try {
@@ -68,8 +84,6 @@ export class DesignService {
       if (error instanceof NetworkError) {
         return false;
       }
-      // Si el health check responde pero con error inesperado,
-      // consideramos que el backend está funcionando
       return true;
     }
   }

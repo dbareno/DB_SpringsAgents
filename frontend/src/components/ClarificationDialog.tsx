@@ -3,12 +3,11 @@
 import { useState, type FormEvent } from 'react';
 import { HelpCircle, Send } from 'lucide-react';
 import Button from '@/components/ui/Button';
-import Input from '@/components/ui/Input';
 import Card from '@/components/ui/Card';
 
 interface ClarificationDialogProps {
   questions: string[];
-  onSubmit: (answers: string) => Promise<void>;
+  onSubmit: (answers: string[]) => Promise<void>;
   isLoading: boolean;
 }
 
@@ -17,13 +16,28 @@ export default function ClarificationDialog({
   onSubmit,
   isLoading,
 }: ClarificationDialogProps) {
-  const [answers, setAnswers] = useState('');
+  // Estado inicial: un campo vacío por cada pregunta
+  const [answers, setAnswers] = useState<string[]>(
+    new Array(questions.length).fill('')
+  );
+
+  const handleAnswerChange = (index: number, value: string) => {
+    setAnswers((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!answers.trim() || isLoading) return;
-    await onSubmit(answers.trim());
+    // Filtrar respuestas vacías
+    const nonEmpty = answers.map((a) => a.trim()).filter((a) => a.length > 0);
+    if (nonEmpty.length === 0 || isLoading) return;
+    await onSubmit(nonEmpty);
   };
+
+  const allFilled = answers.every((a) => a.trim().length > 0);
 
   if (!questions || questions.length === 0) return null;
 
@@ -33,42 +47,53 @@ export default function ClarificationDialog({
         <HelpCircle className="h-6 w-6 text-amber-400 shrink-0 mt-0.5" />
         <div>
           <h3 className="text-lg font-semibold text-amber-300">
-            Necesitamos más información
+            Información adicional requerida
           </h3>
           <p className="text-sm text-zinc-400 mt-1">
-            El agente de diseño necesita algunos detalles adicionales para completar el diseño.
+            El agente necesita completar algunos datos para continuar con el diseño.
+            Responde cada pregunta en su propio campo.
           </p>
         </div>
       </div>
 
-      <div className="mb-4 space-y-2">
-        <p className="text-sm font-medium text-zinc-300">Preguntas:</p>
-        <ul className="space-y-1.5">
-          {questions.map((q, i) => (
-            <li
-              key={i}
-              className="flex items-start gap-2 text-sm text-zinc-400"
-            >
-              <span className="text-amber-400 mt-px shrink-0">•</span>
-              <span>{q}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <Input
-          label="Tus respuestas"
-          placeholder="Respondé cada pregunta de forma clara y concisa..."
-          value={answers}
-          onChange={(e) => setAnswers(e.target.value)}
-          rows={4}
-          disabled={isLoading}
-        />
-        <Button type="submit" isLoading={isLoading} className="self-end">
-          <Send className="h-4 w-4" />
-          Enviar respuestas
-        </Button>
+        {/* Una card por pregunta */}
+        <div className="space-y-3">
+          {questions.map((question, i) => (
+            <div
+              key={i}
+              className="rounded-lg border border-zinc-700/50 bg-zinc-900/50 p-3"
+            >
+              <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                <span className="text-amber-400 mr-1">{i + 1}.</span>
+                {question}
+              </label>
+              <textarea
+                value={answers[i]}
+                onChange={(e) => handleAnswerChange(i, e.target.value)}
+                placeholder="Escribe tu respuesta aquí..."
+                rows={2}
+                disabled={isLoading}
+                className="w-full rounded-lg border border-zinc-700 bg-[#0d1117] px-3 py-2 text-sm text-zinc-100 placeholder-zinc-500 transition-colors focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between pt-2">
+          <span className="text-xs text-zinc-500">
+            {answers.filter((a) => a.trim().length > 0).length} de{' '}
+            {questions.length} respondidas
+          </span>
+          <Button
+            type="submit"
+            isLoading={isLoading}
+            disabled={!allFilled}
+          >
+            <Send className="h-4 w-4" />
+            Enviar respuestas
+          </Button>
+        </div>
       </form>
     </Card>
   );
