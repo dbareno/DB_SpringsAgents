@@ -1,0 +1,108 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Spring Design Agent – Docker Compose
+# ─────────────────────────────────────────────────────────────────────────────
+# Starts all required infrastructure services.
+#
+# Usage:
+#   docker compose up -d            # Start all services in background
+#   docker compose up -d postgres   # Start only PostgreSQL
+#   docker compose logs -f api      # Tail API logs
+#   docker compose down -v          # Stop and remove volumes
+
+services:
+
+  # ── FastAPI Application ──────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: springs_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chromadb:
+        condition: service_started
+    volumes:
+      - ./app:/app/app:ro       # Mount source for hot-reload in dev
+    environment:
+      - POSTGRES_URL=postgresql+asyncpg://postgres:springs_pass@postgres:5432/springs_db
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: springs_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: springs_pass
+      POSTGRES_DB: springs_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── ChromaDB (vector store for normative standards) ────────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: springs_chromadb
+    ports:
+      - "8001:8000"             # Exposed on 8001 to avoid collision with API
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      - ANONYMIZED_TELEMETRY=false
+      - CHROMA_SERVER_AUTHN_CREDENTIALS=
+      - CHROMA_SERVER_AUTHN_PROVIDER=
+    restart: unless-stopped
+
+  # ── Redis (optional: session caching / result store) ──────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: springs_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    profiles:
+      - redis   # Only started with: docker compose --profile redis up
+
+  # ── Ollama (local LLM fallback) ────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: springs_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    profiles:
+      - local-llm  # Only started with: docker compose --profile local-llm up
+    # Pull the model on first start:
+    # docker exec springs_ollama ollama pull qwen2.5:3b
+
+volumes:
+  postgres_data:
+  chroma_data:
+  redis_data:
+  ollama_data:
