@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 # Lifespan (startup / shutdown hooks)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """FastAPI lifespan context manager for startup and shutdown tasks."""
@@ -86,45 +87,46 @@ app.add_middleware(
 # ── Routers ───────────────────────────────────────────────────────────────
 app.include_router(design_router)
 
-# ── Serve frontend static build (standalone .exe mode) ───────────────────
+# ── Frontend static build detection (standalone .exe mode) ──────────────
 import os
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 
-FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "out")
+if getattr(sys, "frozen", False):
+    FRONTEND_DIR = os.path.join(sys._MEIPASS, "frontend", "out")
+else:
+    FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "out")
 
-if os.path.isdir(FRONTEND_DIR):
+_HAS_FRONTEND = os.path.isdir(FRONTEND_DIR)
+
+if _HAS_FRONTEND:
     logger.info("Frontend static build detected at %s — serving SPA.", FRONTEND_DIR)
 
-    # Mount Next.js static chunks (must be mounted before catch-all)
+    # Mount Next.js static chunks
     next_static = os.path.join(FRONTEND_DIR, "_next")
     if os.path.isdir(next_static):
         app.mount("/_next", StaticFiles(directory=next_static), name="frontend_next")
-
-    # SPA catch-all: serve index.html for any non-API path
-    @app.get("/{full_path:path}", response_model=None)
-    async def serve_frontend(full_path: str) -> FileResponse | JSONResponse:
-        # Let API routes through untouched
-        if full_path.startswith(("api/", "docs", "redoc", "openapi", "health")):
-            return JSONResponse({"detail": "Not Found"}, status_code=404)
-        index_path = os.path.join(FRONTEND_DIR, "index.html")
-        if os.path.isfile(index_path):
-            return FileResponse(index_path, media_type="text/html")
-        return JSONResponse({"detail": "Not Found"}, status_code=404)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Root & health endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 
-@app.get("/", tags=["Root"], summary="API root")
-async def root() -> dict:
-    return {
-        "service": settings.app_name,
-        "version": settings.app_version,
-        "status": "running",
-        "docs": "/docs",
-    }
+def _serve_index() -> FileResponse | JSONResponse:
+    """Serve the SPA index.html if frontend is available."""
+    if _HAS_FRONTEND:
+        index_path = os.path.join(FRONTEND_DIR, "index.html")
+        if os.path.isfile(index_path):
+            return FileResponse(index_path, media_type="text/html")
+    return JSONResponse(
+        {"service": settings.app_name, "version": settings.app_version, "status": "running", "docs": "/docs"}
+    )
+
+
+@app.get("/", tags=["Root"], summary="API root", response_model=None)
+async def root() -> FileResponse | JSONResponse:
+    """Return the SPA when frontend is available, otherwise API metadata."""
+    return _serve_index()
 
 
 @app.get("/health", tags=["Health"], summary="System health check")
@@ -132,6 +134,17 @@ async def health() -> JSONResponse:
     return JSONResponse(
         content={"status": "healthy", "version": settings.app_version}
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SPA catch-all — MUST be the LAST route registered
+# ─────────────────────────────────────────────────────────────────────────────
+
+if _HAS_FRONTEND:
+    @app.get("/{full_path:path}", response_model=None, include_in_schema=False)
+    async def serve_frontend(full_path: str) -> FileResponse | JSONResponse:
+        """Serve index.html for any unmatched path (SPA fallback)."""
+        return _serve_index()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

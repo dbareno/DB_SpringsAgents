@@ -1,11 +1,11 @@
 # launcher.spec — PyInstaller spec for Spring Design Agent standalone .exe
 
+import os
 import sys
 from pathlib import Path
 
-import PyInstaller.__main__
-
-PROJECT_ROOT = Path(__file__).parent
+# SPEC is the spec file path, provided by PyInstaller in the exec namespace
+PROJECT_ROOT = Path(SPEC).parent
 
 a = Analysis(
     [str(PROJECT_ROOT / "scripts" / "launcher.py")],
@@ -37,6 +37,7 @@ a = Analysis(
         "pandas",
         "pydantic",
         "pydantic_settings",
+        "aiosqlite",
         "chromadb",
         "httpx",
         "dotenv",

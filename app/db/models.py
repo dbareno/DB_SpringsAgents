@@ -15,7 +15,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     DateTime,
     Float,
@@ -23,9 +22,8 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -76,7 +74,7 @@ class DesignProject(Base):
 
     __tablename__ = "design_projects"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     raw_user_input: Mapped[str] = mapped_column(Text, nullable=False)
     spring_type: Mapped[str] = mapped_column(String(30), nullable=False, default="unknown")
@@ -86,13 +84,13 @@ class DesignProject(Base):
         default="pending",
         comment="pending | needs_clarification | approved | error | iteration_limit",
     )
-    final_report: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    final_report: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     total_iterations: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime, default=datetime.utcnow
     )
     completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        DateTime, nullable=True
     )
 
     # Relationships
@@ -111,20 +109,19 @@ class DesignIteration(Base):
 
     __tablename__ = "design_iterations"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     project_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("design_projects.id", ondelete="CASCADE"), nullable=False
+        Integer, ForeignKey("design_projects.id", ondelete="CASCADE"), nullable=False
     )
     material_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("spring_materials.id"), nullable=True
     )
     iteration_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    geometry_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    compliance_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    approved: Mapped[bool] = mapped_column(Boolean, default=False)
-    failure_modes: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    geometry_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    compliance_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    failure_modes: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime, default=datetime.utcnow
     )
 
     # Relationships
