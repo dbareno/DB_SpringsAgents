@@ -101,17 +101,14 @@ def design_engineer_node(state: AgentState) -> dict:
     G = material.shear_modulus_gpa if material else 79.3
     Sy = material.yield_strength_mpa if material else 1_500.0
 
-    # ── Read previous compliance for redesign directives ─────────────────
-    redesign_directives: list[str] = []
-    previous_compliance = state.get("compliance")
-    if previous_compliance is not None:
-        directives = getattr(previous_compliance, "redesign_directives", [])
-        if directives:
-            redesign_directives = list(directives)
-            logger.info(
-                "[Agent 2] Redesign iteration — applying directives: %s",
-                "; ".join(redesign_directives),
-            )
+    # ── Read redesign directives from state (preserved across iterations
+    #    by increment_iteration_node — NOT from compliance, which is cleared).
+    redesign_directives: list[str] = list(state.get("redesign_directives", []))
+    if redesign_directives:
+        logger.info(
+            "[Agent 2] Redesign iteration — applying directives: %s",
+            "; ".join(redesign_directives),
+        )
 
     # ── If we have force + deflection, call tool directly ─────────────────
     if requirements.load_force_n and requirements.deflection_mm:

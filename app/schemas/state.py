@@ -217,6 +217,11 @@ class AgentState(dict):
     compliance: ComplianceReport | None
     """Compliance report produced by Agent 4 via compliance_verification_tool."""
 
+    redesign_directives: list[str]
+    """Redesign directives from the PREVIOUS compliance iteration (persists
+    across iterations — NOT cleared by increment_iteration_node). Used by
+    Agent 2 to adjust geometry parameters on redesign attempts."""
+
     commercial_proposals: list[CommercialScore]
     """Ranked commercial scores produced by Agent 5."""
 
@@ -252,6 +257,7 @@ def initial_state(raw_user_input: str, max_iterations: int = 5) -> dict:
         "geometry": None,
         "material": None,
         "compliance": None,
+        "redesign_directives": [],
         "commercial_proposals": [],
         "llm_status": LLMProviderStatus(),
         "errors": [],

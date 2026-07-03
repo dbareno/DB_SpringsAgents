@@ -140,24 +140,35 @@ def route_after_compliance(state: AgentState) -> str:
 def increment_iteration_node(state: AgentState) -> dict:
     """
     Lightweight node that bumps the ``iteration_count`` before re-entering
-    the design loop.  Also logs the active redesign directives.
+    the design loop.  Also logs and PRESERVES the redesign directives from
+    the previous compliance check so Agent 2 can use them to adjust geometry.
     """
     count = state.get("iteration_count", 0) + 1
     compliance = state.get("compliance")
 
-    if compliance and compliance.redesign_directives:
+    # ── Extract directives from compliance BEFORE it gets cleared ──────
+    directives: list[str] = []
+    if compliance is not None:
+        if isinstance(compliance, dict):
+            directives = compliance.get("redesign_directives", [])
+        elif hasattr(compliance, "redesign_directives"):
+            directives = list(compliance.redesign_directives)
+
+    if directives:
         logger.info(
             "[Orchestrator] Redesign directives for iteration %d:\n%s",
             count,
-            "\n".join(f"  → {d}" for d in compliance.redesign_directives),
+            "\n".join(f"  → {d}" for d in directives),
         )
 
     return {
         "iteration_count": count,
         "current_step": f"redesign_iteration_{count}",
-        # Clear old geometry/compliance so agents recompute from scratch
+        # Clear old geometry/compliance so agents recompute from scratch,
+        # but PRESERVE redesign_directives for Agent 2.
         "geometry": None,
         "compliance": None,
+        "redesign_directives": directives,
     }
 
 
