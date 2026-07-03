@@ -279,6 +279,41 @@ def _check_cyclic(text: str) -> bool | None:
     return None
 
 
+def _derive_values(data: dict) -> None:
+    """
+    Deriva valores calculables a partir de los datos disponibles.
+    Se ejecuta DESPUÉS de la extracción por regex y ANTES de generar preguntas.
+
+    Relaciones:
+      - k = F / δ   (tasa elástica = carga / deflexión)
+      - F = k * δ   (carga = tasa * deflexión)
+      - δ = F / k   (deflexión = carga / tasa)
+
+    Si tenemos 2 de {F, δ, k}, podemos calcular el 3ro.
+    """
+    f = data.get("load_force_n")
+    d = data.get("deflection_mm")
+    k = data.get("spring_rate_n_mm")
+
+    # k = F / δ   (si tenemos carga y deflexión, la tasa se calcula)
+    if k is None and f is not None and d is not None and d > 0:
+        data["spring_rate_n_mm"] = round(f / d, 4)
+        logger.info("[Agent 1] Derived k=%.2f N/mm from F=%.1f / δ=%.1f", f / d, f, d)
+
+    # F = k * δ   (si tenemos tasa y deflexión, la carga se calcula)
+    if f is None and k is not None and d is not None:
+        data["load_force_n"] = round(k * d, 2)
+        logger.info("[Agent 1] Derived F=%.1f N from k=%.2f * δ=%.1f", k * d, k, d)
+
+    # δ = F / k   (si tenemos carga y tasa, la deflexión se calcula)
+    if d is None and f is not None and k is not None and k > 0:
+        data["deflection_mm"] = round(f / k, 4)
+        logger.info("[Agent 1] Derived δ=%.1f mm from F=%.1f / k=%.2f", f / k, f, k)
+
+    # Nota: OD, free length, temperatura, corrosión y ciclos NO se pueden
+    # calcular a partir de otras variables — son inputs de usuario necesarios.
+
+
 def _determine_completeness(data: dict, raw_input: str = "") -> tuple[bool, list[str]]:
     """
     Evalúa completitud y genera preguntas para TODAS las variables de diseño
@@ -294,60 +329,53 @@ def _determine_completeness(data: dict, raw_input: str = "") -> tuple[bool, list
       - Ambiente corrosivo (corrosion_resistant)
       - Carga cíclica y ciclos esperados (cyclic_load / cycles_expected)
 
-    IMPORTANTE: Regex es la FUENTE DE AUTORIDAD para campos numéricos
-    críticos. Si regex encuentra un valor en el texto, SOBREESCRIBE lo
-    que haya devuelto el LLM. Si regex NO encuentra un valor, el campo
-    se elimina (data.pop) para anular alucinaciones del LLM.
+    Estrategia:
+      1. Regex authority — extraer o limpiar cada campo (anular alucinaciones)
+      2. Derivación — si tenemos 2 de {F, δ, k}, calcular el 3ro
+      3. Preguntar solo por lo que NO se puede calcular ni derivar
 
     Returns (is_complete, clarification_questions).
     """
     # ── 1. Regex authority: extraer o limpiar cada campo ──────────────
     if raw_input:
-        # Fuerza
         force = _extract_force(raw_input)
         data["load_force_n"] = force if force is not None else data.pop("load_force_n", None)
 
-        # Deflexión
         deflection = _extract_deflection(raw_input)
         data["deflection_mm"] = deflection if deflection is not None else data.pop("deflection_mm", None)
 
-        # Tasa elástica
         rate_val = _extract_rate(raw_input)
         data["spring_rate_n_mm"] = rate_val if rate_val is not None else data.pop("spring_rate_n_mm", None)
 
-        # Diámetro exterior
         od = _extract_outer_diameter(raw_input)
         data["max_outer_diameter_mm"] = od if od is not None else data.pop("max_outer_diameter_mm", None)
 
-        # Longitud libre
         fl = _extract_free_length(raw_input)
         data["max_free_length_mm"] = fl if fl is not None else data.pop("max_free_length_mm", None)
 
-        # Temperatura
         temp = _extract_temperature(raw_input)
         data["operating_temperature_c"] = temp if temp is not None else data.pop("operating_temperature_c", None)
 
-        # Tipo de resorte — inferencia textual complementa al LLM
         inferred_type = _infer_spring_type(raw_input)
         current_type = data.get("spring_type", "unknown")
         if inferred_type and (current_type in ("unknown", None)):
             data["spring_type"] = inferred_type
 
-        # Corrosión
         corrosion = _check_corrosion(raw_input)
         if corrosion is not None:
             data["corrosion_resistant"] = corrosion
 
-        # Carga cíclica
         cyclic = _check_cyclic(raw_input)
         if cyclic is not None:
             data["cyclic_load"] = cyclic
 
-        # Ciclos
         cycles = _extract_cycles(raw_input)
         data["cycles_expected"] = cycles if cycles is not None else data.pop("cycles_expected", None)
 
-    # ── 2. Estado actual de cada campo ────────────────────────────────
+    # ── 2. Derivar valores calculables ────────────────────────────────
+    _derive_values(data)
+
+    # ── 3. Estado actual de cada campo ────────────────────────────────
     h_type = data.get("spring_type", "unknown") not in ("unknown", None)
     h_load = data.get("load_force_n") is not None
     h_rate = data.get("spring_rate_n_mm") is not None
@@ -355,24 +383,37 @@ def _determine_completeness(data: dict, raw_input: str = "") -> tuple[bool, list
     h_od = data.get("max_outer_diameter_mm") is not None
     h_fl = data.get("max_free_length_mm") is not None
     h_temp = data.get("operating_temperature_c") is not None
-    h_corrosion = data.get("corrosion_resistant") is True  # default false OK
-    h_cyclic = data.get("cyclic_load")  # True o False
+    h_corrosion = data.get("corrosion_resistant") is True
+    h_cyclic = data.get("cyclic_load")
     h_cycles = data.get("cycles_expected") is not None
 
-    # ── 3. Generar preguntas para TODO lo que falte ──────────────────
+    # ── 4. Generar preguntas solo para lo que NO se puede derivar ────
     questions: list[str] = []
+    derived: list[str] = []  # para informar lo que se calculó
 
     if not h_type:
         questions.append("¿Qué tipo de resorte es? (compresión, tracción o torsión)")
 
-    if not h_load and not h_rate:
-        questions.append("¿Qué fuerza de carga (en Newtons) debe soportar el resorte?")
-    elif not h_load and h_rate:
-        questions.append("¿Qué fuerza de carga (en Newtons) debe soportar el resorte? (opcional si ya dio la tasa elástica)")
+    # Para {carga, deflexión, tasa} solo preguntar si faltan 2 o más
+    # (con 1 podemos derivar el resto)
+    known_mech = sum([h_load, h_deflection, h_rate])
+    if known_mech < 2:
+        if not h_load and not h_rate:
+            questions.append("¿Qué fuerza de carga (en Newtons) debe soportar el resorte?")
+        if not h_deflection and not h_rate:
+            questions.append("¿Cuánta deflexión (en mm) necesita el resorte?")
+        if not h_rate and not h_load and not h_deflection:
+            questions.append("¿Cuál es la tasa elástica (N/mm) del resorte? (opcional, si tiene carga y deflexión se calcula automáticamente)")
 
-    if not h_deflection and not h_rate:
-        questions.append("¿Cuánta deflexión (en mm) necesita el resorte?")
+    # Informar lo que se derivó
+    if h_rate and known_mech >= 2:
+        f = data.get("load_force_n")
+        d = data.get("deflection_mm")
+        k = data.get("spring_rate_n_mm")
+        if f is not None and d is not None:
+            derived.append(f"Tasa elástica: {k:.2f} N/mm (calculada de F={f:.0f}N / δ={d:.1f}mm)")
 
+    # OD, free length, temp — NO se pueden derivar
     if not h_od:
         questions.append("¿Cuál es el diámetro exterior máximo disponible (en mm) para el resorte?")
 
@@ -380,19 +421,24 @@ def _determine_completeness(data: dict, raw_input: str = "") -> tuple[bool, list
         questions.append("¿Cuál es la longitud libre máxima disponible (en mm) para el resorte?")
 
     if not h_temp:
-        questions.append("¿Cuál es la temperatura de operación (en °C)? (opcional, se asume ambiente si no se especifica)")
+        questions.append("¿Cuál es la temperatura de operación (en °C)? (opcional, se asume 20°C si no se especifica)")
 
     if not h_corrosion:
-        questions.append("¿El resorte estará expuesto a un ambiente corrosivo? (sí/no)")
+        questions.append("¿El resorte estará expuesto a un ambiente corrosivo?")
 
     if h_cyclic is None or h_cyclic is False:
         questions.append("¿La carga es cíclica (fatiga) o estática?")
     elif h_cyclic and not h_cycles:
-        questions.append("¿Cuántos ciclos de vida espera? (número de ciclos)")
+        questions.append("¿Cuántos ciclos de vida espera?")
 
-    # ── 4. Decisión de completitud ───────────────────────────────────
-    # is_complete = (carga o tasa) Y (deflexión o tasa) Y tipo conocido
-    # OD, free length, temp, etc. son recomendados pero no bloqueantes
+    # ── 5. Registrar derivaciones en log ──────────────────────────────
+    for msg in derived:
+        logger.info("[Agent 1] %s", msg)
+
+    # ── 6. Decisión de completitud ────────────────────────────────────
+    # Mínimo para diseñar: (carga o tasa) Y (deflexión o tasa) Y tipo conocido
+    # El resto (OD, free length, temp, corrosión, ciclos) se puede asumir
+    # con valores por defecto si el usuario no los especifica.
     is_complete = (h_load or h_rate) and (h_deflection or h_rate) and h_type
 
     return is_complete, questions
