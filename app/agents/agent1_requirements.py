@@ -122,16 +122,12 @@ def _extract_deflection(text: str) -> float | None:
 def _extract_rate(text: str) -> float | None:
     """
     Extrae tasa elástica (N/mm) desde texto plano mediante regex.
-    Usado como fallback cuando el LLM no pobló o alucinó el campo.
     """
     if not text:
         return None
     patterns = [
-        # "rate: 50 N/mm", "spring rate: 50 N/mm"
         r'(?:rate|spring\s*rate|rigidez)\s*:?\s*(\d+(?:\.\d+)?)\s*N/mm',
-        # "50 N/mm"
         r'(\d+(?:\.\d+)?)\s*N/mm',
-        # "rigidez de 50"
         r'rigidez\s*(?:de\s*)?(\d+(?:\.\d+)?)',
     ]
     for p in patterns:
@@ -141,75 +137,263 @@ def _extract_rate(text: str) -> float | None:
     return None
 
 
+def _extract_outer_diameter(text: str) -> float | None:
+    """
+    Extrae diámetro exterior máximo (mm) desde texto plano.
+    """
+    if not text:
+        return None
+    patterns = [
+        r'(?:di[aá]metro\s*exterior|outer\s*diameter|OD)\s*:?\s*(\d+(?:\.\d+)?)\s*mm',
+        r'(?:di[aá]metro\s*exterior|outer\s*diameter)\s*(?:m[aá]x(?:imo)?)?\s*(?:de\s*)?(\d+(?:\.\d+)?)\s*mm',
+        r'OD\s*(?:m[aá]x)?\s*(\d+(?:\.\d+)?)\s*mm',
+        r'(\d+(?:\.\d+)?)\s*mm\s*(?:de\s*)?(?:di[aá]metro\s*)?(?:exterior|outer)',
+    ]
+    for p in patterns:
+        m = re.search(p, text, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
+    return None
+
+
+def _extract_free_length(text: str) -> float | None:
+    """
+    Extrae longitud libre máxima (mm) desde texto plano.
+    """
+    if not text:
+        return None
+    patterns = [
+        r'(?:longitud\s*libre|free\s*length|Lf)\s*:?\s*(\d+(?:\.\d+)?)\s*mm',
+        r'(?:longitud|length)\s*(?:libre|free)?\s*(?:m[aá]x(?:imo)?)?\s*(?:de\s*)?(\d+(?:\.\d+)?)\s*mm',
+        r'(\d+(?:\.\d+)?)\s*mm\s*(?:de\s*)?(?:longitud\s*)?(?:libre|free)',
+    ]
+    for p in patterns:
+        m = re.search(p, text, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
+    return None
+
+
+def _extract_temperature(text: str) -> float | None:
+    """
+    Extrae temperatura de operación (°C) desde texto plano.
+    """
+    if not text:
+        return None
+    patterns = [
+        r'(?:temperatura|operating\s*temp|temperature)\s*(?:de\s*operaci[oó]n)?\s*:?\s*(\d+(?:\.\d+)?)\s*°?C',
+        r'(\d+(?:\.\d+)?)\s*°?C',
+    ]
+    for p in patterns:
+        m = re.search(p, text, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
+    return None
+
+
+def _infer_spring_type(text: str) -> str | None:
+    """
+    Intenta inferir el tipo de resorte desde el texto.
+    Returns None si no puede determinarlo.
+    """
+    if not text:
+        return None
+    text_lower = text.lower()
+    # Mapas de palabras clave a tipo
+    compression = ["compresión", "compresion", "compression"]
+    extension = ["tracción", "traccion", "traction", "extension", "extensión"]
+    torsion = ["torsión", "torsion", "torsional"]
+    
+    if any(k in text_lower for k in compression):
+        return "compression"
+    if any(k in text_lower for k in extension):
+        return "extension"
+    if any(k in text_lower for k in torsion):
+        return "torsion"
+    return None
+
+
+def _extract_cycles(text: str) -> int | None:
+    """
+    Extrae ciclos esperados desde texto plano.
+    """
+    if not text:
+        return None
+    patterns = [
+        r'(?:ciclos|cycles)\s*(?:de\s*vida)?\s*:?\s*(\d+)',
+        r'(\d+)\s*(?:ciclos|cycles)',
+    ]
+    for p in patterns:
+        m = re.search(p, text, re.IGNORECASE)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _check_corrosion(text: str) -> bool | None:
+    """
+    Detecta si el usuario menciona ambiente corrosivo.
+    Reconoce texto natural y formato de etiqueta "Corrosion resistant: no".
+    Returns True si corrosivo, False si no, None si no se menciona.
+    """
+    if not text:
+        return None
+    text_lower = text.lower()
+    # Formato etiqueta
+    if re.search(r'corrosion\s*resistant\s*:?\s*(?:no|false)', text_lower):
+        return False
+    if re.search(r'corrosion\s*resistant\s*:?\s*(?:sí|si|yes|true)', text_lower):
+        return True
+    # Texto natural negativo
+    negative = ["no corrosivo", "sin corrosión", "no corrosion",
+                "ambiente normal", "seco", "no está expuesto"]
+    if any(k in text_lower for k in negative):
+        return False
+    # Texto natural positivo
+    positive = ["corrosivo", "corrosión", "corrosion",
+                "ácido", "ácida", "salino", "marino", "expuesto a"]
+    if any(k in text_lower for k in positive):
+        return True
+    return None
+
+
+def _check_cyclic(text: str) -> bool | None:
+    """
+    Detecta si el usuario menciona carga cíclica/fatiga.
+    Reconoce texto natural y formato de etiqueta.
+    """
+    if not text:
+        return None
+    text_lower = text.lower()
+    # Formato etiqueta
+    if re.search(r'cyclic\s*load\s*:?\s*(?:no|static|false)', text_lower):
+        return False
+    if re.search(r'cyclic\s*load\s*:?\s*(?:yes|cyclic|fatigue|true)', text_lower):
+        return True
+    # Texto natural
+    if any(k in text_lower for k in ["estático", "static", "una sola vez"]):
+        return False
+    if any(k in text_lower for k in ["cíclico", "ciclico", "fatiga", "cyclic",
+                                      "repetitivo", "alternante"]):
+        return True
+    return None
+
+
 def _determine_completeness(data: dict, raw_input: str = "") -> tuple[bool, list[str]]:
     """
-    Determine if requirements are complete enough for design, and generate
-    clarification questions for missing critical fields.
+    Evalúa completitud y genera preguntas para TODAS las variables de diseño
+    de resorte que falten, no solo las críticas.
 
-    Critical fields:
-      - load_force_n OR spring_rate_n_mm
-      - deflection_mm OR spring_rate_n_mm
+    Variables evaluadas:
+      - Tipo de resorte (spring_type)
+      - Carga (load_force_n) o tasa elástica (spring_rate_n_mm)
+      - Deflexión (deflection_mm) o tasa elástica (spring_rate_n_mm)
+      - Diámetro exterior máximo (max_outer_diameter_mm)
+      - Longitud libre máxima (max_free_length_mm)
+      - Temperatura de operación (operating_temperature_c)
+      - Ambiente corrosivo (corrosion_resistant)
+      - Carga cíclica y ciclos esperados (cyclic_load / cycles_expected)
 
     IMPORTANTE: Regex es la FUENTE DE AUTORIDAD para campos numéricos
     críticos. Si regex encuentra un valor en el texto, SOBREESCRIBE lo
-    que haya devuelto el LLM (el LLM alucina valores con frecuencia).
-    Si regex NO encuentra un valor, el campo se considera ausente incluso
-    si el LLM lo pobló (porque es una alucinación del ejemplo).
+    que haya devuelto el LLM. Si regex NO encuentra un valor, el campo
+    se elimina (data.pop) para anular alucinaciones del LLM.
 
     Returns (is_complete, clarification_questions).
     """
-    spring_type = data.get("spring_type", "unknown")
-
-    # ── Regex es PRIMARIO para campos numéricos críticos ──────────────
-    # Corre siempre, sobreescribe cualquier alucinación del LLM.
-    # qwen2.5:7b tiende a copiar valores del prompt o inventarlos.
+    # ── 1. Regex authority: extraer o limpiar cada campo ──────────────
     if raw_input:
         # Fuerza
         force = _extract_force(raw_input)
-        if force is not None:
-            data["load_force_n"] = force
-            logger.info("[Agent 1] Regex set load_force_n=%s from raw_input", force)
-        else:
-            data.pop("load_force_n", None)
-            logger.info("[Agent 1] No force in text via regex — cleared")
+        data["load_force_n"] = force if force is not None else data.pop("load_force_n", None)
 
         # Deflexión
         deflection = _extract_deflection(raw_input)
-        if deflection is not None:
-            data["deflection_mm"] = deflection
-            logger.info("[Agent 1] Regex set deflection_mm=%s from raw_input", deflection)
-        else:
-            data.pop("deflection_mm", None)
-            logger.info("[Agent 1] No deflection in text via regex — cleared")
+        data["deflection_mm"] = deflection if deflection is not None else data.pop("deflection_mm", None)
 
-        # Tasa elástica (spring rate) — solo si regex no la encuentra en el texto
-        rate_text = _extract_rate(raw_input)
-        if rate_text is not None:
-            data["spring_rate_n_mm"] = rate_text
-            logger.info("[Agent 1] Regex set spring_rate_n_mm=%s from raw_input", rate_text)
-        else:
-            data.pop("spring_rate_n_mm", None)
-            logger.info("[Agent 1] No spring_rate in text via regex — cleared")
+        # Tasa elástica
+        rate_val = _extract_rate(raw_input)
+        data["spring_rate_n_mm"] = rate_val if rate_val is not None else data.pop("spring_rate_n_mm", None)
 
-    has_load = data.get("load_force_n") is not None
-    has_rate = data.get("spring_rate_n_mm") is not None
-    has_deflection = data.get("deflection_mm") is not None
+        # Diámetro exterior
+        od = _extract_outer_diameter(raw_input)
+        data["max_outer_diameter_mm"] = od if od is not None else data.pop("max_outer_diameter_mm", None)
 
+        # Longitud libre
+        fl = _extract_free_length(raw_input)
+        data["max_free_length_mm"] = fl if fl is not None else data.pop("max_free_length_mm", None)
+
+        # Temperatura
+        temp = _extract_temperature(raw_input)
+        data["operating_temperature_c"] = temp if temp is not None else data.pop("operating_temperature_c", None)
+
+        # Tipo de resorte — inferencia textual complementa al LLM
+        inferred_type = _infer_spring_type(raw_input)
+        current_type = data.get("spring_type", "unknown")
+        if inferred_type and (current_type in ("unknown", None)):
+            data["spring_type"] = inferred_type
+
+        # Corrosión
+        corrosion = _check_corrosion(raw_input)
+        if corrosion is not None:
+            data["corrosion_resistant"] = corrosion
+
+        # Carga cíclica
+        cyclic = _check_cyclic(raw_input)
+        if cyclic is not None:
+            data["cyclic_load"] = cyclic
+
+        # Ciclos
+        cycles = _extract_cycles(raw_input)
+        data["cycles_expected"] = cycles if cycles is not None else data.pop("cycles_expected", None)
+
+    # ── 2. Estado actual de cada campo ────────────────────────────────
+    h_type = data.get("spring_type", "unknown") not in ("unknown", None)
+    h_load = data.get("load_force_n") is not None
+    h_rate = data.get("spring_rate_n_mm") is not None
+    h_deflection = data.get("deflection_mm") is not None
+    h_od = data.get("max_outer_diameter_mm") is not None
+    h_fl = data.get("max_free_length_mm") is not None
+    h_temp = data.get("operating_temperature_c") is not None
+    h_corrosion = data.get("corrosion_resistant") is True  # default false OK
+    h_cyclic = data.get("cyclic_load")  # True o False
+    h_cycles = data.get("cycles_expected") is not None
+
+    # ── 3. Generar preguntas para TODO lo que falte ──────────────────
     questions: list[str] = []
 
-    if not has_load and not has_rate:
-        questions.append("¿Qué fuerza de carga (en Newtons) debe soportar el resorte?")
-    elif not has_load:
-        questions.append("¿Qué fuerza de carga (en Newtons) debe soportar el resorte?")
-
-    if not has_deflection and not has_rate:
-        questions.append("¿Cuánta deflexión (en mm) necesita?")
-
-    if spring_type in ("unknown", "unknown"):
+    if not h_type:
         questions.append("¿Qué tipo de resorte es? (compresión, tracción o torsión)")
 
-    # For a valid design we need: (load OR rate) AND (deflection OR rate)
-    is_complete = (has_load or has_rate) and (has_deflection or has_rate)
+    if not h_load and not h_rate:
+        questions.append("¿Qué fuerza de carga (en Newtons) debe soportar el resorte?")
+    elif not h_load and h_rate:
+        questions.append("¿Qué fuerza de carga (en Newtons) debe soportar el resorte? (opcional si ya dio la tasa elástica)")
+
+    if not h_deflection and not h_rate:
+        questions.append("¿Cuánta deflexión (en mm) necesita el resorte?")
+
+    if not h_od:
+        questions.append("¿Cuál es el diámetro exterior máximo disponible (en mm) para el resorte?")
+
+    if not h_fl:
+        questions.append("¿Cuál es la longitud libre máxima disponible (en mm) para el resorte?")
+
+    if not h_temp:
+        questions.append("¿Cuál es la temperatura de operación (en °C)? (opcional, se asume ambiente si no se especifica)")
+
+    if not h_corrosion:
+        questions.append("¿El resorte estará expuesto a un ambiente corrosivo? (sí/no)")
+
+    if h_cyclic is None or h_cyclic is False:
+        questions.append("¿La carga es cíclica (fatiga) o estática?")
+    elif h_cyclic and not h_cycles:
+        questions.append("¿Cuántos ciclos de vida espera? (número de ciclos)")
+
+    # ── 4. Decisión de completitud ───────────────────────────────────
+    # is_complete = (carga o tasa) Y (deflexión o tasa) Y tipo conocido
+    # OD, free length, temp, etc. son recomendados pero no bloqueantes
+    is_complete = (h_load or h_rate) and (h_deflection or h_rate) and h_type
 
     return is_complete, questions
 

@@ -59,17 +59,38 @@ def _compute_progress_pct(current_step: str | None) -> int:
 # que el formato Q&A genérico.
 
 _CLARIFICATION_LABELS: dict[str, str] = {
+    # Carga
     "carga": "Load force",
     "newton": "Load force",
     "fuerza": "Load force",
+    # Deflexión
     "deflexión": "Deflection",
     "deflection": "Deflection",
-    "mm": "Deflection",
+    # Tipo
     "tipo de resorte": "Spring type",
     "spring type": "Spring type",
-    "compression": "Spring type",
+    "compresión": "Spring type",
     "tracción": "Spring type",
     "torsión": "Spring type",
+    # Diámetro exterior
+    "diámetro exterior": "Max outer diameter",
+    "outer diameter": "Max outer diameter",
+    # Longitud libre
+    "longitud libre": "Max free length",
+    "free length": "Max free length",
+    # Temperatura
+    "temperatura": "Operating temperature",
+    "temperature": "Operating temperature",
+    # Corrosión
+    "corrosivo": "Corrosion resistant",
+    "corrosión": "Corrosion resistant",
+    # Carga cíclica
+    "cíclica": "Cyclic load",
+    "fatiga": "Cyclic load",
+    "estática": "Cyclic load",
+    # Ciclos
+    "ciclos": "Cycles expected",
+    "cycles": "Cycles expected",
 }
 
 
