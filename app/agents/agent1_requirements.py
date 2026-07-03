@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -33,7 +34,7 @@ from app.schemas.state import AgentState, SpringType, UserRequirements
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """You are a requirements analyst for spring design.
-Extract ALL spring design parameters from the text below.
+Extract ALL spring design parameters from the text below into the EXACT JSON field names provided.
 
 The text may contain:
 - An original user request in natural language
@@ -48,24 +49,75 @@ Put null for values not mentioned. Infer spring_type from context
 (compression/extension/torsion/spiral/wave). Default to compression if unclear.
 Set corrosion_resistant and cyclic_load to false unless the user says otherwise.
 
-JSON:
+Example of the EXACT format you MUST follow (replace values accordingly):
 {
-  "spring_type": "...",
-  "load_force_n": <float or null>,
-  "deflection_mm": <float or null>,
-  "spring_rate_n_mm": <float or null>,
-  "max_outer_diameter_mm": <float or null>,
-  "max_free_length_mm": <float or null>,
-  "solid_length_mm": <float or null>,
-  "operating_temperature_c": <float or null>,
-  "corrosion_resistant": <false>,
-  "cyclic_load": <false>,
-  "cycles_expected": <int or null>,
+  "spring_type": "compression",
+  "load_force_n": 500.0,
+  "deflection_mm": 10.0,
+  "spring_rate_n_mm": null,
+  "max_outer_diameter_mm": null,
+  "max_free_length_mm": null,
+  "solid_length_mm": null,
+  "operating_temperature_c": null,
+  "corrosion_resistant": false,
+  "cyclic_load": false,
+  "cycles_expected": null,
   "clarification_questions": []
-}"""
+}
+
+CRITICAL: Use the EXACT field names shown above. Do NOT change "load_force_n" to "load_force" or any other variation. Do NOT add new fields. Do NOT use comments like <float or null> — use actual float numbers or null.
+"""
 
 
-def _determine_completeness(data: dict) -> tuple[bool, list[str]]:
+def _extract_force(text: str) -> float | None:
+    """
+    Extrae fuerza en Newtons desde texto plano mediante regex.
+    Usado como fallback cuando el LLM no pobló el campo JSON.
+    """
+    if not text:
+        return None
+    patterns = [
+        # "500N", "500 N", "500 Newtons", "500 newtons"
+        r'(\d+(?:\.\d+)?)\s*N(?:ewtons?)?\b',
+        # "Load force: 500 N", "Load force:500N" (formato etiqueta inglés)
+        r'(?:Load force|load force|Force|force)\s*:\s*(\d+(?:\.\d+)?)',
+        # "fuerza: 500", "fuerza de 500"
+        r'fuerza\s*(?:de\s*)?(\d+(?:\.\d+)?)',
+        # "carga: 500", "carga de 500"
+        r'carga\s*(?:de\s*)?(\d+(?:\.\d+)?)',
+    ]
+    for p in patterns:
+        m = re.search(p, text, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
+    return None
+
+
+def _extract_deflection(text: str) -> float | None:
+    """
+    Extrae deflexión en mm desde texto plano mediante regex.
+    Usado como fallback cuando el LLM no pobló el campo JSON.
+    """
+    if not text:
+        return None
+    patterns = [
+        # "deflexión: 10", "deflexión de 10"
+        r'deflexi[oó]n\s*(?:de\s*)?(\d+(?:\.\d+)?)',
+        # "Deflection: 10 mm", "deflection: 10mm" (formato etiqueta inglés)
+        r'(?:Deflection|deflection)\s*:?\s*(\d+(?:\.\d+)?)\s*mm',
+        # "recorrido: 10", "recorrido de 10"
+        r'recorrido\s*(?:de\s*)?(\d+(?:\.\d+)?)',
+        # "10mm deflexión", "10 mm de deflexión"
+        r'(\d+(?:\.\d+)?)\s*mm\s*(?:de\s*)?(?:deflexi[oó]n|recorrido|deflection)',
+    ]
+    for p in patterns:
+        m = re.search(p, text, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
+    return None
+
+
+def _determine_completeness(data: dict, raw_input: str = "") -> tuple[bool, list[str]]:
     """
     Determine if requirements are complete enough for design, and generate
     clarification questions for missing critical fields.
@@ -74,12 +126,31 @@ def _determine_completeness(data: dict) -> tuple[bool, list[str]]:
       - load_force_n OR spring_rate_n_mm
       - deflection_mm OR spring_rate_n_mm
 
+    Fallback: si el LLM no extrajo un valor crítico, se intenta extraer
+    directamente del texto plano con regex antes de decidir que falta.
+
     Returns (is_complete, clarification_questions).
     """
     has_load = data.get("load_force_n") is not None
     has_rate = data.get("spring_rate_n_mm") is not None
     has_deflection = data.get("deflection_mm") is not None
     spring_type = data.get("spring_type", "unknown")
+
+    # ── Regex fallback para fuerza ──────────────────────────────────────
+    if not has_load and not has_rate and raw_input:
+        force = _extract_force(raw_input)
+        if force is not None:
+            data["load_force_n"] = force
+            has_load = True
+            logger.info("[Agent 1] Regex extracted load_force_n=%s from raw_input", force)
+
+    # ── Regex fallback para deflexión ───────────────────────────────────
+    if not has_deflection and not has_rate and raw_input:
+        deflection = _extract_deflection(raw_input)
+        if deflection is not None:
+            data["deflection_mm"] = deflection
+            has_deflection = True
+            logger.info("[Agent 1] Regex extracted deflection_mm=%s from raw_input", deflection)
 
     questions: list[str] = []
 
@@ -134,7 +205,8 @@ def requirements_analyst_node(state: AgentState) -> dict:
             data = json.loads(raw_json)
 
             # ── Override: programmatic completeness, not LLM's guess ──────
-            is_complete, questions = _determine_completeness(data)
+            # Pass raw_input so regex fallback can extract values the LLM missed
+            is_complete, questions = _determine_completeness(data, raw_input=raw_input)
             data["is_complete"] = is_complete
             data["clarification_questions"] = questions
 
