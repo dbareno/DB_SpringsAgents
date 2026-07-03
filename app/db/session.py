@@ -73,23 +73,22 @@ async def _create_engine() -> tuple[AsyncEngine, async_sessionmaker[AsyncSession
     )
     _ENGINE_URL = sqlite_url
 
-    # Auto-create tables
-    from app.db.models import Base, DesignIteration
+    # Auto-create tables + migration
+    from app.db.models import Base
+    from sqlalchemy import text
     async with sqlite_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Migrate: add approved column if missing (SQLite-specific)
-    try:
-        from sqlalchemy import text
-        result = await conn.execute(
-            text("SELECT approved FROM design_iterations LIMIT 1")
-        )
-    except Exception:
-        # Column does not exist → add it
-        await conn.execute(
-            text("ALTER TABLE design_iterations ADD COLUMN approved BOOLEAN NOT NULL DEFAULT 0")
-        )
-        logger.info("[Migration] Added `approved` column to design_iterations.")
+        # Migrate: add approved column if missing (SQLite-specific)
+        try:
+            await conn.execute(
+                text("SELECT approved FROM design_iterations LIMIT 1")
+            )
+        except Exception:
+            await conn.execute(
+                text("ALTER TABLE design_iterations ADD COLUMN approved BOOLEAN NOT NULL DEFAULT 0")
+            )
+            logger.info("[Migration] Added `approved` column to design_iterations.")
 
     logger.info("Database: SQLite (spring_design_agent.db)")
     session_factory = async_sessionmaker(
