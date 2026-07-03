@@ -56,6 +56,7 @@ def normative_inspector_node(state: AgentState) -> dict:
         "yield_strength_mpa": material.yield_strength_mpa,
         "shear_modulus_gpa": material.shear_modulus_gpa,
         "spring_type": spring_type,
+        "max_free_length_mm": requirements.max_free_length_mm if requirements else None,
         "cyclic_load": requirements.cyclic_load if requirements else False,
     }
 

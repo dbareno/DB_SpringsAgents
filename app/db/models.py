@@ -119,6 +119,7 @@ class DesignIteration(Base):
     iteration_number: Mapped[int] = mapped_column(Integer, nullable=False)
     geometry_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     compliance_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     failure_modes: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow

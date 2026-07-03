@@ -109,6 +109,11 @@ def calculate_spring_geometry_tool(
             n_t = n_a + dead_coils
             return (math.pi**2 / 4.0) * d**2 * D * n_t
 
+        # ── Constraint helpers ──────────────────────────────────────────────
+        # Standard requires Sf ≥ 1.3 for shear (DIN 2095 / EN 13906-1)
+        TARGET_SF = 1.3
+        ALLOWABLE_SHEAR_MPA = 0.45 * yield_strength_mpa / TARGET_SF
+
         # ── Constraints ────────────────────────────────────────────────────
         constraints = [
             # Spring rate must match target within ±1%
@@ -116,11 +121,11 @@ def calculate_spring_geometry_tool(
                 "type": "eq",
                 "fun": lambda x: _spring_rate(x[0], x[1], x[2], G) - k_target,
             },
-            # Shear stress safety: Ks*τ ≤ 0.45*Sy  (conservative Wahl limit)
+            # Shear stress safety: Ks*τ ≤ allowable (DIN: Sf ≥ 1.3)
             {
                 "type": "ineq",
                 "fun": lambda x: (
-                    0.45 * yield_strength_mpa
+                    ALLOWABLE_SHEAR_MPA
                     - _wahl_correction(x[1] / x[0])
                     * _shear_stress(load_force_n, x[0], x[1])
                 ),
@@ -148,6 +153,15 @@ def calculate_spring_geometry_tool(
             # Tighten D upper bound
             bounds_list[1] = (5.0, max_outer_diameter_mm - 0.5)
 
+        # Free-length constraint: L0 = (n_a + dead_coils)*d + deflection + 2*d
+        if max_free_length_mm is not None:
+            _, dead = dead_coils, 2.0  # dead coils default
+            constraints.append({
+                "type": "ineq",
+                "fun": lambda x, mfl=max_free_length_mm, dfl=deflection_mm:
+                    mfl - ((x[2] + 4.0) * x[0] + dfl),
+            })
+
         # Initial guess: mid-range values
         x0 = np.array([2.0, 20.0, 8.0])
 
@@ -163,7 +177,7 @@ def calculate_spring_geometry_tool(
         if not result.success:
             logger.warning("Optimizer did not converge: %s", result.message)
             # Fallback: analytical estimate
-            d_est = (8 * load_force_n / (math.pi * 0.45 * yield_strength_mpa)) ** (
+            d_est = (8 * load_force_n / (math.pi * ALLOWABLE_SHEAR_MPA)) ** (
                 1 / 3
             )
             D_est = 8.0 * d_est
@@ -398,6 +412,7 @@ def compliance_verification_tool(
     yield_strength_mpa: float,
     shear_modulus_gpa: float,
     spring_type: str = "compression",
+    max_free_length_mm: float | None = None,
     cyclic_load: bool = False,
     min_force_n: float | None = None,
     max_force_n: float | None = None,
@@ -410,7 +425,8 @@ def compliance_verification_tool(
     1. Wahl-corrected shear stress vs. yield (static safety factor Sf ≥ 1.3)
     2. Slenderness / buckling check  (L0/D ≤ 5.26 for fixed–free ends per DIN 2095)
     3. Spring index validity          (4 ≤ C ≤ 12 per DIN 2076 / ASTM F1276)
-    4. Goodman fatigue criterion      (only when cyclic_load=True)
+    4. Free-length constraint         (when max_free_length_mm is provided)
+    5. Goodman fatigue criterion      (only when cyclic_load=True)
 
     In production: cross-references ChromaDB/Redis for additional standard clauses.
 
@@ -462,6 +478,16 @@ def compliance_verification_tool(
             failure_modes.append(f"Spring index C = {C:.2f} outside [4, 12]")
             redesign_directives.append(
                 f"Adjust D/d ratio: current C = {C:.2f}. Target 4 ≤ C ≤ 12."
+            )
+
+        # ── Free-length constraint ─────────────────────────────────────────
+        if max_free_length_mm is not None and L0 > max_free_length_mm * 1.05:
+            failure_modes.append(
+                f"Free length {L0:.1f} mm exceeds constraint {max_free_length_mm:.1f} mm."
+            )
+            redesign_directives.append(
+                "Reduce free length by using fewer active coils or a smaller wire "
+                "diameter. Compensate with larger D if needed to maintain spring rate."
             )
 
         # ── Fatigue (Goodman) ──────────────────────────────────────────────
