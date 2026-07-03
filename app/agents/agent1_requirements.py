@@ -49,11 +49,15 @@ Put null for values not mentioned. Infer spring_type from context
 (compression/extension/torsion/spiral/wave). Default to compression if unclear.
 Set corrosion_resistant and cyclic_load to false unless the user says otherwise.
 
-Example of the EXACT format you MUST follow (replace values accordingly):
+Use the EXACT field names below. Set fields to null when the user did NOT
+provide a value. NEVER invent or guess numeric values — if the user does not
+specify it, it MUST be null.
+
+Schema:
 {
-  "spring_type": "compression",
-  "load_force_n": 500.0,
-  "deflection_mm": 10.0,
+  "spring_type": "compression or extension or torsion or spiral or wave",
+  "load_force_n": null,
+  "deflection_mm": null,
   "spring_rate_n_mm": null,
   "max_outer_diameter_mm": null,
   "max_free_length_mm": null,
@@ -64,8 +68,6 @@ Example of the EXACT format you MUST follow (replace values accordingly):
   "cycles_expected": null,
   "clarification_questions": []
 }
-
-CRITICAL: Use the EXACT field names shown above. Do NOT change "load_force_n" to "load_force" or any other variation. Do NOT add new fields. Do NOT use comments like <float or null> — use actual float numbers or null.
 """
 
 
@@ -117,6 +119,28 @@ def _extract_deflection(text: str) -> float | None:
     return None
 
 
+def _extract_rate(text: str) -> float | None:
+    """
+    Extrae tasa elástica (N/mm) desde texto plano mediante regex.
+    Usado como fallback cuando el LLM no pobló o alucinó el campo.
+    """
+    if not text:
+        return None
+    patterns = [
+        # "rate: 50 N/mm", "spring rate: 50 N/mm"
+        r'(?:rate|spring\s*rate|rigidez)\s*:?\s*(\d+(?:\.\d+)?)\s*N/mm',
+        # "50 N/mm"
+        r'(\d+(?:\.\d+)?)\s*N/mm',
+        # "rigidez de 50"
+        r'rigidez\s*(?:de\s*)?(\d+(?:\.\d+)?)',
+    ]
+    for p in patterns:
+        m = re.search(p, text, re.IGNORECASE)
+        if m:
+            return float(m.group(1))
+    return None
+
+
 def _determine_completeness(data: dict, raw_input: str = "") -> tuple[bool, list[str]]:
     """
     Determine if requirements are complete enough for design, and generate
@@ -126,31 +150,50 @@ def _determine_completeness(data: dict, raw_input: str = "") -> tuple[bool, list
       - load_force_n OR spring_rate_n_mm
       - deflection_mm OR spring_rate_n_mm
 
-    Fallback: si el LLM no extrajo un valor crítico, se intenta extraer
-    directamente del texto plano con regex antes de decidir que falta.
+    IMPORTANTE: Regex es la FUENTE DE AUTORIDAD para campos numéricos
+    críticos. Si regex encuentra un valor en el texto, SOBREESCRIBE lo
+    que haya devuelto el LLM (el LLM alucina valores con frecuencia).
+    Si regex NO encuentra un valor, el campo se considera ausente incluso
+    si el LLM lo pobló (porque es una alucinación del ejemplo).
 
     Returns (is_complete, clarification_questions).
     """
-    has_load = data.get("load_force_n") is not None
-    has_rate = data.get("spring_rate_n_mm") is not None
-    has_deflection = data.get("deflection_mm") is not None
     spring_type = data.get("spring_type", "unknown")
 
-    # ── Regex fallback para fuerza ──────────────────────────────────────
-    if not has_load and not has_rate and raw_input:
+    # ── Regex es PRIMARIO para campos numéricos críticos ──────────────
+    # Corre siempre, sobreescribe cualquier alucinación del LLM.
+    # qwen2.5:7b tiende a copiar valores del prompt o inventarlos.
+    if raw_input:
+        # Fuerza
         force = _extract_force(raw_input)
         if force is not None:
             data["load_force_n"] = force
-            has_load = True
-            logger.info("[Agent 1] Regex extracted load_force_n=%s from raw_input", force)
+            logger.info("[Agent 1] Regex set load_force_n=%s from raw_input", force)
+        else:
+            data.pop("load_force_n", None)
+            logger.info("[Agent 1] No force in text via regex — cleared")
 
-    # ── Regex fallback para deflexión ───────────────────────────────────
-    if not has_deflection and not has_rate and raw_input:
+        # Deflexión
         deflection = _extract_deflection(raw_input)
         if deflection is not None:
             data["deflection_mm"] = deflection
-            has_deflection = True
-            logger.info("[Agent 1] Regex extracted deflection_mm=%s from raw_input", deflection)
+            logger.info("[Agent 1] Regex set deflection_mm=%s from raw_input", deflection)
+        else:
+            data.pop("deflection_mm", None)
+            logger.info("[Agent 1] No deflection in text via regex — cleared")
+
+        # Tasa elástica (spring rate) — solo si regex no la encuentra en el texto
+        rate_text = _extract_rate(raw_input)
+        if rate_text is not None:
+            data["spring_rate_n_mm"] = rate_text
+            logger.info("[Agent 1] Regex set spring_rate_n_mm=%s from raw_input", rate_text)
+        else:
+            data.pop("spring_rate_n_mm", None)
+            logger.info("[Agent 1] No spring_rate in text via regex — cleared")
+
+    has_load = data.get("load_force_n") is not None
+    has_rate = data.get("spring_rate_n_mm") is not None
+    has_deflection = data.get("deflection_mm") is not None
 
     questions: list[str] = []
 
