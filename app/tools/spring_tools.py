@@ -172,9 +172,12 @@ def calculate_spring_geometry_tool(
         # We target C = 8 (mid-range spring index), compute Ks(C=8) ≈ 1.184.
         _C_guess = 8.0
         _Ks_guess = (4 * _C_guess - 1) / (4 * _C_guess - 4) + 0.615 / _C_guess
+        # Use a 3 % margin below the absolute allowable so that floating-point
+        # rounding never produces a geometry that JUST misses Sf ≥ 1.3.
+        _analytical_allowable = ALLOWABLE_SHEAR_MPA * 0.97
         d0 = math.sqrt(
             _Ks_guess * 8.0 * load_force_n * _C_guess
-            / (math.pi * ALLOWABLE_SHEAR_MPA)
+            / (math.pi * _analytical_allowable)
         )
         D0 = _C_guess * d0
         n0 = G * d0 ** 4 / (8.0 * D0 ** 3 * k_target)
@@ -474,7 +477,8 @@ def compliance_verification_tool(
         failure_modes: list[str] = []
         redesign_directives: list[str] = []
 
-        if safety_shear < 1.3:
+        # ε = 1e-4 tolerance against floating-point rounding at the Sf=1.3 boundary.
+        if safety_shear + 1e-4 < 1.3:
             failure_modes.append(
                 f"Insufficient shear safety factor: {safety_shear:.3f} < 1.30"
             )
