@@ -44,16 +44,15 @@ class TestStartDesign:
             )
 
         assert isinstance(result, DesignResponse)
-        assert result.status == "approved"
+        # El servicio ahora retorna "processing" inmediatamente (grafo async)
+        assert result.status == "processing"
         assert result.session_id is not None
         assert isinstance(result.session_id, str)
-        assert result.report is not None
-        assert result.report["status"] == "approved"
+        assert result.report is None
         assert result.clarification_questions is None
 
         # Verificar que se haya creado un proyecto y hecho commit
         mock_db_session.add.assert_called()
-        mock_db_session.flush.assert_awaited()
         mock_db_session.commit.assert_awaited()
 
     async def test_start_design_clarification(
@@ -80,18 +79,19 @@ class TestStartDesign:
             )
 
         assert isinstance(result, DesignResponse)
-        assert result.status == "needs_clarification"
+        # El servicio ahora retorna "processing" inmediatamente (grafo async)
+        assert result.status == "processing"
         assert result.report is None
-        assert result.clarification_questions is not None
-        assert len(result.clarification_questions) == 2
+        assert result.clarification_questions is None
 
     async def test_start_design_graph_error(
         self,
         mock_db_session: AsyncMock,
     ) -> None:
         """
-        Verifica que start_design relanza el error como HTTP 500 cuando
-        el grafo falla.
+        Verifica que start_design retorna "processing" incluso cuando el
+        grafo falla (el error se captura en la tarea background y se
+        persiste en DB con status "error").
         """
         with patch(
             "app.services.design_service.spring_design_graph"
@@ -101,17 +101,17 @@ class TestStartDesign:
             from app.services.design_service import DesignService
 
             service = DesignService(db=mock_db_session)
+            result = await service.start_design(
+                user_input="Design a spring",
+                max_iterations=5,
+            )
 
-            with pytest.raises(HTTPException) as exc_info:
-                await service.start_design(
-                    user_input="Design a spring",
-                    max_iterations=5,
-                )
+            assert isinstance(result, DesignResponse)
+            assert result.status == "processing"
+            assert result.session_id is not None
 
-            assert exc_info.value.status_code == 500
-            assert "Graph execution failed" in exc_info.value.detail
-
-        # Verificar que se haya intentado commit (para marcar error)
+        # El commit del request ocurre porque el proyecto se crea antes
+        # de lanzar el background task
         mock_db_session.commit.assert_awaited()
 
     async def test_start_design_custom_session_id(
@@ -178,7 +178,8 @@ class TestClarifyDesign:
             )
 
         assert isinstance(result, DesignResponse)
-        assert result.status == "approved"
+        # El servicio ahora retorna "processing" inmediatamente (grafo async)
+        assert result.status == "processing"
         assert result.session_id == "session-123"
 
     async def test_clarify_design_session_not_found(
@@ -269,7 +270,7 @@ class TestProjectToResponse:
 
     async def test_approved_project(self, mock_db_session: AsyncMock) -> None:
         """Verifica la conversion de un proyecto aprobado."""
-        from app.services.design_service import DesignService
+        from app.services.design_service import _project_to_response
 
         project = DesignProject(
             id=1,
@@ -279,8 +280,7 @@ class TestProjectToResponse:
             final_report={"status": "approved", "data": "ok"},
         )
 
-        service = DesignService(db=mock_db_session)
-        response = service._project_to_response(project)
+        response = _project_to_response(project)
 
         assert response.status == "approved"
         assert response.report == {"status": "approved", "data": "ok"}
@@ -291,7 +291,7 @@ class TestProjectToResponse:
         self, mock_db_session: AsyncMock
     ) -> None:
         """Verifica la conversion de un proyecto que requiere clarificacion."""
-        from app.services.design_service import DesignService
+        from app.services.design_service import _project_to_response
 
         project = DesignProject(
             id=2,
@@ -304,8 +304,7 @@ class TestProjectToResponse:
             },
         )
 
-        service = DesignService(db=mock_db_session)
-        response = service._project_to_response(project)
+        response = _project_to_response(project)
 
         assert response.status == "needs_clarification"
         assert response.report is None
@@ -314,7 +313,7 @@ class TestProjectToResponse:
 
     async def test_error_project(self, mock_db_session: AsyncMock) -> None:
         """Verifica la conversion de un proyecto con error."""
-        from app.services.design_service import DesignService
+        from app.services.design_service import _project_to_response
 
         project = DesignProject(
             id=3,
@@ -327,8 +326,7 @@ class TestProjectToResponse:
             },
         )
 
-        service = DesignService(db=mock_db_session)
-        response = service._project_to_response(project)
+        response = _project_to_response(project)
 
         assert response.status == "error"
         assert response.report is None

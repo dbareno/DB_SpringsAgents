@@ -355,7 +355,12 @@ export default function HomePage() {
 
       {/* Éxito */}
       {status === 'success' && response?.report && (
-        <DesignResult report={response.report} />
+        <DesignResult
+          report={response.report}
+          sessionId={response.session_id}
+          onExportPdf={() => designService.exportPdf(response.session_id)}
+          onExportDxf={() => designService.exportDxf(response.session_id)}
+        />
       )}
 
       {/* Backend offline */}

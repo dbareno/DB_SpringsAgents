@@ -52,10 +52,13 @@ def commercial_optimiser_node(state: AgentState) -> dict:
         # Material properties needed for mass/cost calc
         "density_kg_m3": material.density_kg_m3,
         "cost_usd_per_kg": material.cost_usd_per_kg,
+        "yield_strength_mpa": material.yield_strength_mpa,
         # Compliance scores
         "safety_factor_shear": compliance.safety_factor_shear if compliance else 1.0,
         "safety_factor_buckling": compliance.safety_factor_buckling if compliance else 1.0,
+        # Application requirements
         "cycles_expected": requirements.cycles_expected if requirements else None,
+        "cyclic_load": requirements.cyclic_load if requirements else False,
     }
     proposals_json = json.dumps([proposal])
 

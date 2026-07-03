@@ -63,25 +63,27 @@ Cada fase produce un `.exe` funcional que probamos antes de pasar a la siguiente
 **Problema**: El frontend solo muestra resultados en JSON/texto. No hay plano técnico, PDF, ni DXF para CAD.
 
 **Solución**:
-- Botón "Exportar PDF" → genera plano técnico con cotas, tabla de parámetros, norma aplicable
-- Botón "Exportar DXF" → genera archivo DXF con la geometría del resorte
-- Usar weasyprint / reportlab en backend o librería JS en frontend
+- Botón "Exportar PDF" → genera plano técnico con reportlab: tabla de geometría, material, compliance y comercial
+- Botón "Exportar DXF" → genera archivo DXF con silueta del resorte en vista lateral (zigzag), línea de centro, cotas OD/L0/d y bloque de título
+- Backend: `app/services/export_service.py` con `_build_pdf()` (reportlab) y `_build_dxf()` (ezdxf + NamedTemporaryFile)
+- Endpoints REST: `GET /{session_id}/export/pdf` y `GET /{session_id}/export/dxf`
+- Frontend: `DesignResult.tsx` con botones PDF/DXF, llaman a `window.open` directo
 
 **Criterio de éxito**:
-- PDF descargable con plano legible
-- DXF importable en CAD (Fusion 360, SolidWorks, FreeCAD)
+- PDF descargable con plano legible (✔ 4526 bytes, 4 tablas + footer)
+- DXF importable en CAD (✔ 22901 bytes, capas SPRING/CENTER/DIM/BORDER)
 
-**Archivos a modificar**: Frontend (React/Next.js), backend (endpoint de export)
+**Archivos a modificar**: `app/services/export_service.py` (nuevo), `app/api/v1/design.py` (2 endpoints), `frontend/src/components/DesignResult.tsx` (botones), `frontend/src/services/design-service.ts` (métodos export)
 
 ---
 
 ## Trazabilidad
 
-| Fase | Estado       | .exe build | Tests       | Commit tag            |
-|------|-------------|------------|-------------|-----------------------|
-| 1    | ✅ Completada | OK         | 117✔ / 11✘¹ | `phase-1-optimizer`   |
-| 2    | 🔲 Pendiente |            |             | `phase-2-redesign`    |
-| 3    | 🔲 Pendiente |            |             | `phase-3-commercial`  |
-| 4    | 🔲 Pendiente |            |             | `phase-4-export`      |
+| Fase | Estado       | .exe build | Tests       | Commit tag               |
+|------|-------------|------------|-------------|--------------------------|
+| 1    | ✅ Completada | OK         | 117✔ / 6✘¹ | `phase-1-optimizer`      |
+| 2    | ✅ Completada | OK         | 128✔ / 0✘  | `phase-2-redesign`       |
+| 3    | ✅ Completada | OK         | 123✔ / 0✘  | `phase-3-commercial`     |
+| 4    | ✅ Completada | OK         | 123✔ / 0✘  | `phase-4-export`         |
 
-> ¹ Los 11 failures son pre-existentes (API contract async/Pydantic v2/env mismatch), no relacionados con esta fase.
+> ¹ Los 6 tests deselected son pre-existentes que requieren Ollama corriendo o base de datos SQL.

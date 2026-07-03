@@ -17,12 +17,14 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm_factory import get_factory
 from app.db.session import get_db_session
 from app.schemas.design import ClarifyRequest, DesignRequest, DesignResponse, StepProgress
 from app.services.design_service import DesignService
+from app.services.export_service import export_pdf, export_dxf
 
 router = APIRouter(prefix="/api/v1/design", tags=["Spring Design"])
 
@@ -145,3 +147,56 @@ async def llm_health() -> dict[str, Any]:
         "failed_providers": factory.failed_providers,
         "priority_order": factory._settings.llm_priority_order,
     }
+
+
+# ── Export endpoints ─────────────────────────────────────────────────────
+
+
+@router.get(
+    "/{session_id}/export/pdf",
+    summary="Export design as PDF technical drawing",
+    tags=["Export"],
+)
+async def export_design_pdf(
+    session_id: str,
+    db: AsyncSession = Depends(get_db_session),
+) -> Response:
+    """Generate and download a PDF technical drawing for a completed design."""
+    pdf_bytes = await export_pdf(session_id, db)
+    if pdf_bytes is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session '{session_id}' not found or not yet approved.",
+        )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="spring-design-{session_id[:8]}.pdf"'
+        },
+    )
+
+
+@router.get(
+    "/{session_id}/export/dxf",
+    summary="Export design as DXF CAD file",
+    tags=["Export"],
+)
+async def export_design_dxf(
+    session_id: str,
+    db: AsyncSession = Depends(get_db_session),
+) -> Response:
+    """Generate and download a DXF CAD file for a completed design."""
+    dxf_bytes = await export_dxf(session_id, db)
+    if dxf_bytes is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session '{session_id}' not found or not yet approved.",
+        )
+    return Response(
+        content=dxf_bytes,
+        media_type="application/dxf",
+        headers={
+            "Content-Disposition": f'attachment; filename="spring-design-{session_id[:8]}.dxf"'
+        },
+    )

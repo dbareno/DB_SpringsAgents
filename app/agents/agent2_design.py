@@ -226,42 +226,126 @@ def _adjust_and_design(
     Sy: float,
     state: dict,
 ) -> dict:
-    """Use LLM to adjust tool_input based on compliance redesign directives."""
+    """Usa redesign_advisor_tool para ajustes NUMÉRICOS exactos.
+
+    En vez de preguntarle al LLM cómo ajustar (que adivina), llamamos
+    al advisor tool que computa derivadas analíticas y devuelve Δ% exactos.
+    """
+    from app.tools.spring_tools import redesign_advisor_tool
+
+    compliance = state.get("compliance")
+    geometry = state.get("geometry")
+
     try:
-        factory = get_factory()
-        req_json = requirements.model_dump_json(indent=2)
-        prompt = _REDESIGN_PROMPT.format(
-            requirements_json=req_json,
-            compliance_json=(
-                state.get("compliance").model_dump_json(indent=2)
-                if state.get("compliance")
-                else "{}"
-            ),
-            directives="\n".join(f"- {d}" for d in directives),
+        # ── Llamar al advisor tool ─────────────────────────────────────
+        advisor_result = json.loads(redesign_advisor_tool.invoke({
+            "wire_diameter_mm": geometry.wire_diameter_mm if geometry else 1.0,
+            "mean_coil_diameter_mm": geometry.mean_coil_diameter_mm if geometry else 10.0,
+            "active_coils": geometry.active_coils if geometry else 5.0,
+            "free_length_mm": geometry.free_length_mm if geometry else 50.0,
+            "load_force_n": base_tool_input.get("load_force_n", 100.0),
+            "deflection_mm": base_tool_input.get("deflection_mm", 20.0),
+            "yield_strength_mpa": Sy,
+            "max_outer_diameter_mm": base_tool_input.get("max_outer_diameter_mm"),
+            "max_free_length_mm": base_tool_input.get("max_free_length_mm"),
+            "safety_factor_shear": compliance.safety_factor_shear if compliance else None,
+            "safety_factor_buckling": compliance.safety_factor_buckling if compliance else None,
+            "slenderness_ratio": geometry.free_length_mm / max(geometry.mean_coil_diameter_mm, 0.001)
+                                  if geometry else None,
+            "failure_modes": json.dumps(compliance.failure_modes if compliance else []),
+        }))
+
+        if advisor_result.get("status") != "ok":
+            raise ValueError(advisor_result.get("message", "Advisor tool failed"))
+
+        advisor = advisor_result["advisor"]
+        adjustments: dict = advisor.get("adjustments", {})
+        material_constraints: dict = advisor.get("material_constraints", {})
+        action: str = advisor.get("action", "relax-constraints-or-stop")
+        suggestions: list[str] = advisor.get("suggestions", [])
+
+        logger.info(
+            "[Agent 2] Redesign advisor: action=%s, adjustments=%s, material=%s",
+            action, adjustments, material_constraints,
         )
-        messages = [
-            SystemMessage(content=prompt),
-        ]
-        llm = factory.get_llm()
-        response = llm.invoke(messages)
-        raw = response.content.strip().lstrip("```json").rstrip("```").strip()
-        adjusted = json.loads(raw)
 
-        # Merge: keep original values unless LLM changed them
+        # ── Aplicar ajustes al tool_input ──────────────────────────────
         tool_input = {**base_tool_input}
-        for key in ("spring_type", "load_force_n", "deflection_mm",
-                     "max_outer_diameter_mm", "max_free_length_mm",
-                     "shear_modulus_gpa", "yield_strength_mpa"):
-            if key in adjusted and adjusted[key] is not None:
-                tool_input[key] = adjusted[key]
 
-        logger.info("[Agent 2] Adjusted tool_input based on redesign directives.")
+        # Mapeo de campos: clave en adjustments → clave en tool_input
+        field_map = {
+            "wire_diameter_mm": None,  # no se pasa directo al tool
+            "mean_coil_diameter_mm": None,
+            "free_length_mm": None,
+        }
+
+        # Los ajustes porcentuales se traducen a constraints del tool
+        # (el optimizer recibe OD y FL como constraints, no d o D directos)
+        if "mean_coil_diameter_mm" in adjustments:
+            delta = adjustments["mean_coil_diameter_mm"]
+            if delta > 0 and tool_input.get("max_outer_diameter_mm"):
+                # Aumentar D → necesitamos más OD
+                current_od = tool_input["max_outer_diameter_mm"]
+                tool_input["max_outer_diameter_mm"] = round(
+                    current_od * (1.0 + delta / 100.0), 2
+                )
+                logger.info("[Agent 2] Relajando OD constraint en +%.1f%%", delta)
+            elif delta < 0 and tool_input.get("max_outer_diameter_mm"):
+                # Reducir D → OD más pequeño (más restrictivo)
+                current_od = tool_input["max_outer_diameter_mm"]
+                tool_input["max_outer_diameter_mm"] = round(
+                    current_od * (1.0 + delta / 100.0), 2
+                )
+
+        if "free_length_mm" in adjustments:
+            delta = adjustments["free_length_mm"]
+            if delta < 0 and tool_input.get("max_free_length_mm"):
+                current_fl = tool_input["max_free_length_mm"]
+                tool_input["max_free_length_mm"] = round(
+                    current_fl * (1.0 + delta / 100.0), 2
+                )
+                logger.info("[Agent 2] Ajustando FL constraint en %.1f%%", delta)
+
+        if "yield_strength_mpa" in material_constraints:
+            # Si el advisor sugiere un material más fuerte, actualizamos Sy
+            tool_input["yield_strength_mpa"] = float(material_constraints["min_yield_strength_mpa"])
+            logger.info(
+                "[Agent 2] Actualizando Sy a %.0f MPa por recomendación del advisor.",
+                tool_input["yield_strength_mpa"],
+            )
+            # También subimos G ligeramente (aceros más duros tienen G similar)
+            tool_input["shear_modulus_gpa"] = max(G, 79.3)
 
     except Exception as exc:
-        logger.warning("[Agent 2] LLM redesign adjustment failed: %s. Using base input.", exc)
-        tool_input = {**base_tool_input}
+        logger.warning("[Agent 2] Advisor tool failed: %s. Fallback to LLM.", exc)
+        # Fallback: usar LLM como antes
+        try:
+            factory = get_factory()
+            req_json = requirements.model_dump_json(indent=2) if hasattr(requirements, 'model_dump_json') else str(requirements)
+            prompt = _REDESIGN_PROMPT.format(
+                requirements_json=req_json,
+                compliance_json=(
+                    compliance.model_dump_json(indent=2)
+                    if compliance else "{}"
+                ),
+                directives="\n".join(f"- {d}" for d in directives),
+            )
+            messages = [SystemMessage(content=prompt)]
+            llm = factory.get_llm()
+            response = llm.invoke(messages)
+            raw = response.content.strip().lstrip("```json").rstrip("```").strip()
+            adjusted = json.loads(raw)
+            tool_input = {**base_tool_input}
+            for key in ("spring_type", "load_force_n", "deflection_mm",
+                         "max_outer_diameter_mm", "max_free_length_mm",
+                         "shear_modulus_gpa", "yield_strength_mpa"):
+                if key in adjusted and adjusted[key] is not None:
+                    tool_input[key] = adjusted[key]
+        except Exception:
+            tool_input = {**base_tool_input}
+            logger.warning("[Agent 2] LLM fallback also failed — using base input.")
 
-    # ── Fall through: call tool with (possibly adjusted) input ──────────
+    # ── Invocar el geometry tool ───────────────────────────────────────────
     try:
         result_json = calculate_spring_geometry_tool.invoke(tool_input)
         result = json.loads(result_json)
@@ -288,11 +372,22 @@ def _adjust_and_design(
             geometry.mean_coil_diameter_mm,
             geometry.active_coils,
         )
-        return {
+
+        # Si el advisor pidió material más fuerte, guardar en state
+        updates: dict = {
             "geometry": geometry,
             "current_step": "design_engineer",
             "messages": [AIMessage(content=f"Redesign geometry: {geom_data}")],
         }
+        if material_constraints and "min_yield_strength_mpa" in material_constraints:
+            updates["min_yield_strength_mpa"] = float(material_constraints["min_yield_strength_mpa"])
+            logger.info(
+                "[Agent 2] Guardando min_yield_strength_mpa=%.0f para Agent 3.",
+                updates["min_yield_strength_mpa"],
+            )
+
+        return updates
+
     except Exception as exc:
         logger.exception("[Agent 2] Redesign tool invocation failed")
         return {

@@ -29,7 +29,7 @@ export class NetworkError extends Error {
 }
 
 export class BaseApiClient {
-  private readonly baseUrl: string;
+  readonly baseUrl: string;
   private readonly timeoutMs: number;
 
   constructor(baseUrl?: string, timeoutMs?: number) {

@@ -353,7 +353,7 @@ class TestClarifyDesign:
         """
         payload = {
             "session_id": "test-session-456",
-            "answers": "The required force is 100N and OD max is 30mm.",
+            "answers": ["The required force is 100N and OD max is 30mm."],
         }
         response = await client.post("/api/v1/design/clarify", json=payload)
 
@@ -384,7 +384,7 @@ class TestClarifyDesign:
 
         payload = {
             "session_id": "nonexistent",
-            "answers": "Some answers.",
+            "answers": ["Some answers."],
         }
         response = await client.post("/api/v1/design/clarify", json=payload)
 
@@ -410,18 +410,16 @@ class TestClarifyDesign:
 
         assert response.status_code == 422
 
-    async def test_clarify_design_empty_answers_accepted(
+    async def test_clarify_design_empty_answers_returns_422(
         self, client: AsyncClient
     ) -> None:
         """
-        Verifica que answers vacio es aceptado (el schema ClarifyRequest
-        no define min_length para answers, por lo que el servicio recibe
-        el string vacio y lo procesa).
+        Verifica que answers vacio retorna 422 (min_length=1).
         """
-        payload = {"session_id": "test-session", "answers": ""}
+        payload = {"session_id": "test-session", "answers": []}
         response = await client.post("/api/v1/design/clarify", json=payload)
 
-        assert response.status_code == 200
+        assert response.status_code == 422
 
 
 class TestGetDesign:

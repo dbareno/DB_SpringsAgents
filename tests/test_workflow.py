@@ -148,6 +148,7 @@ class TestInitialState:
             "final_report",
             "_raw_input",
             "redesign_directives",
+            "min_yield_strength_mpa",
         }
         assert set(state.keys()) == expected_keys
 
@@ -206,7 +207,7 @@ class TestInitialState:
         from app.schemas.state import LLMProviderStatus
 
         assert isinstance(state["llm_status"], LLMProviderStatus)
-        assert state["llm_status"].active_provider == "gemini"
+        assert state["llm_status"].active_provider == "ollama"
         assert state["llm_status"].failed_providers == []
 
 

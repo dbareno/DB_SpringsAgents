@@ -384,6 +384,7 @@ def query_material_properties_tool(
     max_cost_usd_per_kg: float | None = None,
     spring_type: str = "compression",
     preferred_material_name: str | None = None,
+    min_yield_strength_mpa: float | None = None,
 ) -> str:
     """
     Query the PostgreSQL materials catalogue and return the best-matching
@@ -505,12 +506,19 @@ def query_material_properties_tool(
         if max_cost_usd_per_kg is not None:
             df = df[df["cost_usd_per_kg"] <= max_cost_usd_per_kg]
 
+        if min_yield_strength_mpa is not None:
+            df = df[df["yield_strength_mpa"] >= min_yield_strength_mpa]
+
         if df.empty:
+            missing = []
+            if min_yield_strength_mpa:
+                missing.append(f"Sy ≥ {min_yield_strength_mpa:.0f}MPa")
             return json.dumps({
                 "status": "no_match",
                 "message": (
-                    "No material in the catalogue satisfies all constraints. "
-                    "Consider relaxing temperature, corrosion, or cost requirements."
+                    f"No material satisfies all constraints "
+                    f"({' + '.join(missing) if missing else 'filters'}). "
+                    "Consider relaxing requirements."
                 ),
             })
 
@@ -683,37 +691,184 @@ def compliance_verification_tool(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Tool 4 — Commercial Scoring
+# Tool 4 — Redesign Advisor (feedback numérico exacto)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@tool
+def redesign_advisor_tool(
+    wire_diameter_mm: float,
+    mean_coil_diameter_mm: float,
+    active_coils: float,
+    free_length_mm: float,
+    load_force_n: float,
+    deflection_mm: float,
+    yield_strength_mpa: float,
+    max_outer_diameter_mm: float | None = None,
+    max_free_length_mm: float | None = None,
+    safety_factor_shear: float | None = None,
+    safety_factor_buckling: float | None = None,
+    slenderness_ratio: float | None = None,
+    failure_modes: str = "[]",
+) -> str:
+    """
+    Redesign advisor: traduce fallos de compliance en ajustes NUMÉRICOS
+    exactos para el siguiente ciclo de rediseño.
+
+    A diferencia del enfoque anterior (LLM adivinando ajustes), este tool
+    computa DERIVADAS ANALÍTICAS para calcular cuánto cambiar cada parámetro:
+
+      • Sf_shear = (0.45·Sy) / (Ks·8·F·D/(π·d³))  ∝  Sy·d³ / D
+        → Para subir Sf de X a Y: si ajustamos d → Δd = d·((X/Y)^(1/3) - 1)
+                                 si ajustamos Sy → Sy_requerido = Sy·(Y/X)
+
+      • Buckling:  λ = L0/D.  Para λ ≤ 5.26:
+        → ΔD = D·(λ/5.26 - 1)  o  ΔL0 = min(L0·(1 - 5.26/λ), L0*0.3)
+
+    Returns:
+        JSON con adjustments, material_constraints, y una sugerencia
+        de acción (re-run Agent 3, relajar constraint, etc.)
+    """
+    try:
+        d = wire_diameter_mm
+        D = mean_coil_diameter_mm
+        n_a = active_coils
+        L0 = free_length_mm
+        F = load_force_n
+        delta = deflection_mm
+        Sy = yield_strength_mpa
+        Sf_target = 1.3
+
+        import json as _json
+
+        failure_list: list[str] = _json.loads(failure_modes) if isinstance(failure_modes, str) else []
+
+        adjustments: dict[str, float] = {}   # campo → delta_%
+        material_constraints: dict[str, object] = {}
+        suggestions: list[str] = []
+
+        # ── 1. Shear safety factor ────────────────────────────────────────
+        sf_shear = safety_factor_shear if safety_factor_shear else 0.0
+        if sf_shear > 0 and sf_shear < Sf_target - 1e-4:
+            ratio = Sf_target / sf_shear  # ej: 1.30/1.05 = 1.238
+
+            # Opción A: aumentar wire diameter → Sf ∝ d³ → Δd = ratio^(1/3) - 1
+            d_factor = ratio ** (1.0 / 3.0)  # ~1.074 para ratio=1.238
+            d_delta_pct = round((d_factor - 1.0) * 100.0, 1)
+
+            # Opción B: aumentar yield strength → Sf ∝ Sy → Sy_needed = Sy * ratio
+            sy_needed = round(Sy * ratio, 0)
+
+            # Opción C: reducir D → Sf ∝ 1/D → D_delta = 1 - 1/ratio
+            D_delta_pct = round((1.0 - 1.0 / ratio) * 100.0, 1)
+
+            adjustments["wire_diameter_mm"] = d_delta_pct
+            adjustments["mean_coil_diameter_mm"] = -D_delta_pct  # reducir
+            material_constraints["min_yield_strength_mpa"] = sy_needed
+            suggestions.append(
+                f"Shear Sf={sf_shear:.3f} < {Sf_target}: aumentar d en un ~{d_delta_pct}%, "
+                f"o reducir D en un ~{D_delta_pct}%, o usar material con Sy≥{sy_needed:.0f}MPa "
+                f"(actual Sy={Sy:.0f}MPa)."
+            )
+
+        # ── 2. Buckling ───────────────────────────────────────────────────
+        lam = slenderness_ratio if slenderness_ratio else L0 / max(D, 0.001)
+        CRITICAL_LAMBDA = 5.26
+        if lam > CRITICAL_LAMBDA:
+            # λ = L0/D. Para cumplir λ ≤ 5.26:
+            #   Opción A: reducir L0 en ΔL0 = L0·(1 - 5.26/λ)
+            l0_factor = CRITICAL_LAMBDA / lam
+            l0_delta_pct = round((1.0 - l0_factor) * 100.0, 1)
+            #   Opción B: aumentar D en ΔD = D·(λ/5.26 - 1)
+            d_delta_buckling = round((lam / CRITICAL_LAMBDA - 1.0) * 100.0, 1)
+
+            # Elegir la más práctica: reducir L0 si es posible
+            if "free_length_mm" not in adjustments or abs(adjustments.get("free_length_mm", 0)) < l0_delta_pct:
+                adjustments["free_length_mm"] = -l0_delta_pct
+            # También sugerir aumentar D como alternativa
+            if d_delta_buckling < abs(adjustments.get("mean_coil_diameter_mm", 0)):
+                adjustments["mean_coil_diameter_mm"] = d_delta_buckling
+
+            suggestions.append(
+                f"Buckling λ={lam:.2f} > {CRITICAL_LAMBDA}: reducir L0 en ~{l0_delta_pct}% "
+                f"o aumentar D en ~{d_delta_buckling}%."
+            )
+
+        # ── 3. Free-length constraint ─────────────────────────────────────
+        if max_free_length_mm is not None and L0 > max_free_length_mm:
+            excess_pct = round((L0 / max_free_length_mm - 1.0) * 100.0, 1)
+            # Reducir L0: menos coils activos o menor wire diameter
+            adjustments["free_length_mm"] = -excess_pct
+            # También reducir n_a indirectamente vía wire_diameter
+            # (menor d → menor solid length)
+            suggestions.append(
+                f"Free length {L0:.1f}mm > {max_free_length_mm:.1f}mm "
+                f"(exceso ~{excess_pct}%): reducir n_a o d."
+            )
+
+        # ── 4. Spring index ───────────────────────────────────────────────
+        has_index_failure = any("spring index" in fm.lower() for fm in failure_list)
+        if has_index_failure:
+            suggestions.append(
+                "Spring index C fuera de rango [4, 12]: ajustar relación D/d. "
+                "Generalmente aumentar d (bajar C) o reducir D (bajar C)."
+            )
+
+        # ── Build response ────────────────────────────────────────────────
+        result: dict[str, object] = {
+            "adjustments": adjustments,
+            "material_constraints": material_constraints,
+            "suggestions": suggestions,
+        }
+        if material_constraints:
+            result["action"] = "re-run-agent-3"
+        elif adjustments:
+            result["action"] = "adjust-tool-input"
+        else:
+            result["action"] = "relax-constraints-or-stop"
+
+        return json.dumps({"status": "ok", "advisor": result})
+
+    except Exception as exc:
+        logger.exception("redesign_advisor_tool failed")
+        return json.dumps({"status": "error", "message": str(exc)})
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Tool 5 — Commercial Scoring
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 @tool
 def commercial_scoring_tool(proposals: str) -> str:
     """
-    Rank a list of spring design proposals by a weighted commercial index.
+    Rank spring proposals by weighted commercial index with manufacturing costs.
 
-    The composite score balances material cost and estimated durability.
-    Output is structured as a JSON array ready for React/Recharts rendering
-    and includes a ``three_js_params`` sub-object for 3D model generation.
+    Computes true wire mass, material cost, plus manufacturing costs (winding,
+    heat treatment, shot peening) and a fatigue-aware life estimate. The
+    composite score balances total cost, durability, and safety.
 
     Args:
         proposals: JSON string representing a list of proposal dicts.
                    Each dict must contain at minimum:
-                   - ``proposal_id``         (str)
-                   - ``wire_diameter_mm``    (float)
-                   - ``mean_coil_diameter_mm`` (float)
-                   - ``active_coils``        (float)
-                   - ``total_coils``         (float)
-                   - ``free_length_mm``      (float)
-                   - ``outer_diameter_mm``   (float)
-                   - ``density_kg_m3``       (float)
-                   - ``cost_usd_per_kg``     (float)
-                   - ``safety_factor_shear`` (float)
-                   - ``safety_factor_buckling`` (float)
-                   - ``cycles_expected``     (int, optional)
+                   - ``proposal_id``              (str)
+                   - ``wire_diameter_mm``         (float)
+                   - ``mean_coil_diameter_mm``    (float)
+                   - ``active_coils``             (float)
+                   - ``total_coils``              (float)
+                   - ``free_length_mm``           (float)
+                   - ``outer_diameter_mm``        (float)
+                   - ``density_kg_m3``            (float)
+                   - ``cost_usd_per_kg``          (float)
+                   - ``safety_factor_shear``      (float)
+                   - ``safety_factor_buckling``   (float)
+                   - ``cycles_expected``          (int, optional)
+                   - ``yield_strength_mpa``       (float, optional)
+                   - ``cyclic_load``              (bool, optional)
 
     Returns:
-        JSON string with ranked proposals list and chart-ready data.
+        JSON string with ranked proposals list (includes manufacturing cost
+        breakdown) and chart-ready data.
     """
     try:
         raw: list[dict[str, Any]] = json.loads(proposals)
@@ -731,29 +886,76 @@ def commercial_scoring_tool(proposals: str) -> str:
         # ── Material cost per spring [USD] ─────────────────────────────────
         df["material_cost_usd"] = df["wire_mass_kg"] * df["cost_usd_per_kg"]
 
-        # ── Estimated life cycles (stub: Sf × baseline) ────────────────────
+        # ── Manufacturing cost model ───────────────────────────────────────
+
+        # 1. Winding cost: quadratic penalty for d/D away from sweet spot 0.08
+        #    d/D < 0.04 → thin wire on large coil, hard to control pitch
+        #    d/D > 0.15 → thick wire on small coil, high force + springback
+        sweet_ratio = 0.08
+        d_D = df["wire_diameter_mm"] / df["mean_coil_diameter_mm"]
+        dev = (d_D - sweet_ratio) / sweet_ratio  # relative deviation
+        winding_factor = (1.0 + 2.0 * dev ** 2).clip(upper=3.0)
+        base_winding_usd = 0.08  # automated CNC winding at sweet spot
+        df["winding_cost_usd"] = (base_winding_usd * winding_factor).round(4)
+
+        # 2. Heat treatment
+        #    - Stress relief after winding: always needed, small fixed cost
+        #    - Quench & temper: needed when Sy > 1500 MPa (high-strength alloys)
+        df["stress_relief_usd"] = 0.03
+        sy = df.get("yield_strength_mpa", pd.Series([0.0] * len(df)))
+        df["quench_temper_usd"] = sy.apply(
+            lambda v: 0.08 if (pd.notna(v) and v > 1500.0) else 0.0
+        )
+        df["heat_treat_usd"] = (
+            df["stress_relief_usd"] + df["quench_temper_usd"]
+        ).round(4)
+
+        # 3. Shot peening (improves fatigue life 2-3x for cyclic loads)
+        cyclic = df.get("cyclic_load", pd.Series([False] * len(df)))
+        df["shot_peen_usd"] = cyclic.apply(
+            lambda v: 0.12 if v else 0.0
+        )
+
+        # 4. Total manufacturing cost
+        df["manufacturing_usd"] = (
+            df["winding_cost_usd"]
+            + df["heat_treat_usd"]
+            + df["shot_peen_usd"]
+        ).round(4)
+
+        # 5. Total cost per spring
+        df["total_cost_usd"] = (
+            df["material_cost_usd"] + df["manufacturing_usd"]
+        ).round(4)
+
+        # ── Estimated life cycles (fatigue-aware) ──────────────────────────
+        # Baseline: Sf × 500k. Shot peening improves life 2.5×.
         baseline_cycles = 500_000
+        shot_peen_mult = cyclic.apply(lambda v: 2.5 if v else 1.0)
         df["estimated_life_cycles"] = (
-            df["safety_factor_shear"] * baseline_cycles
+            df["safety_factor_shear"] * baseline_cycles * shot_peen_mult
         ).astype(int)
 
         # ── Composite score  (higher = better) ────────────────────────────
-        # Weights: cost efficiency 40%, shear safety 30%, buckling safety 20%,
-        #          free-length compactness 10%
-        max_cost = df["material_cost_usd"].max()
+        # Weights: total cost 35%, shear safety 25%, buckling safety 15%,
+        #          life efficiency 15%, free-length compactness 10%
+        max_cost = df["total_cost_usd"].max()
         max_sf = df["safety_factor_shear"].max()
         max_sfb = df["safety_factor_buckling"].max()
+        max_life = df["estimated_life_cycles"].max()
         max_L0 = df["free_length_mm"].max()
 
-        df["score_cost"] = 1.0 - (df["material_cost_usd"] / max_cost)
+        df["score_cost"] = 1.0 - (df["total_cost_usd"] / max_cost)
         df["score_shear"] = df["safety_factor_shear"] / max_sf
         df["score_buckling"] = df["safety_factor_buckling"] / max_sfb
+        df["score_life"] = df["estimated_life_cycles"] / max_life
         df["score_compactness"] = 1.0 - (df["free_length_mm"] / max_L0)
 
         df["composite_score"] = (
-            0.40 * df["score_cost"]
-            + 0.30 * df["score_shear"]
-            + 0.20 * df["score_buckling"]
+            0.35 * df["score_cost"]
+            + 0.25 * df["score_shear"]
+            + 0.15 * df["score_buckling"]
+            + 0.15 * df["score_life"]
             + 0.10 * df["score_compactness"]
         )
 
@@ -763,7 +965,8 @@ def commercial_scoring_tool(proposals: str) -> str:
         # ── Chart-ready payload (Recharts / Victory format) ────────────────
         chart_data = df[[
             "proposal_id", "rank", "composite_score",
-            "material_cost_usd", "estimated_life_cycles",
+            "total_cost_usd", "material_cost_usd", "manufacturing_usd",
+            "estimated_life_cycles",
             "safety_factor_shear", "safety_factor_buckling",
             "wire_mass_kg",
         ]].round(4).to_dict(orient="records")
@@ -787,6 +990,8 @@ def commercial_scoring_tool(proposals: str) -> str:
                 "composite_score": round(row["composite_score"], 4),
                 "wire_mass_kg": round(row["wire_mass_kg"], 6),
                 "material_cost_usd": round(row["material_cost_usd"], 4),
+                "manufacturing_usd": round(row["manufacturing_usd"], 4),
+                "total_cost_usd": round(row["total_cost_usd"], 4),
                 "estimated_life_cycles": int(row["estimated_life_cycles"]),
                 "three_js_params": three_js_params(row),
             })

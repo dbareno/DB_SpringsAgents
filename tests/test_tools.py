@@ -160,6 +160,8 @@ class TestCommercialTool:
             "spring_rate_n_mm": 5.0,
             "density_kg_m3": 7850.0,
             "cost_usd_per_kg": 3.80,
+            "yield_strength_mpa": 1580.0,
+            "cyclic_load": False,
             "safety_factor_shear": 2.1,
             "safety_factor_buckling": 1.8,
             "cycles_expected": 500_000,

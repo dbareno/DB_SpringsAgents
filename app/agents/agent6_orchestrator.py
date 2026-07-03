@@ -165,10 +165,13 @@ def increment_iteration_node(state: AgentState) -> dict:
         "iteration_count": count,
         "current_step": f"redesign_iteration_{count}",
         # Clear old geometry/compliance so agents recompute from scratch,
-        # but PRESERVE redesign_directives for Agent 2.
+        # but PRESERVE redesign_directives for Agent 2 and
+        # min_yield_strength_mpa for Agent 3.
         "geometry": None,
         "compliance": None,
         "redesign_directives": directives,
+        # Preserve material constraint from previous iteration
+        "min_yield_strength_mpa": state.get("min_yield_strength_mpa"),
     }
 
 

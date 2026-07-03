@@ -222,6 +222,11 @@ class AgentState(dict):
     across iterations — NOT cleared by increment_iteration_node). Used by
     Agent 2 to adjust geometry parameters on redesign attempts."""
 
+    min_yield_strength_mpa: float | None
+    """Minimum yield strength required by redesign advisor (MPa). Set by
+    Agent 2 during redesign, consumed by Agent 3 in the next iteration
+    to pick a stronger material. Persisted by increment_iteration_node."""
+
     commercial_proposals: list[CommercialScore]
     """Ranked commercial scores produced by Agent 5."""
 
@@ -258,6 +263,7 @@ def initial_state(raw_user_input: str, max_iterations: int = 5) -> dict:
         "material": None,
         "compliance": None,
         "redesign_directives": [],
+        "min_yield_strength_mpa": None,
         "commercial_proposals": [],
         "llm_status": LLMProviderStatus(),
         "errors": [],

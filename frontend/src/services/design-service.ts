@@ -74,6 +74,22 @@ export class DesignService {
   }
 
   /**
+   * Exporta el diseño como PDF (descarga directa).
+   */
+  async exportPdf(sessionId: string): Promise<void> {
+    const url = `${this.client.baseUrl}/api/v1/design/${encodeURIComponent(sessionId)}/export/pdf`;
+    window.open(url, "_blank");
+  }
+
+  /**
+   * Exporta el diseño como DXF (descarga directa).
+   */
+  async exportDxf(sessionId: string): Promise<void> {
+    const url = `${this.client.baseUrl}/api/v1/design/${encodeURIComponent(sessionId)}/export/dxf`;
+    window.open(url, "_blank");
+  }
+
+  /**
    * Verifica si el backend está alcanzable.
    */
   async checkHealth(): Promise<boolean> {

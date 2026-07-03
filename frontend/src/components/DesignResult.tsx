@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useState } from 'react';
-import { Ruler, ShieldCheck, BarChart3 } from 'lucide-react';
+import { Ruler, ShieldCheck, BarChart3, FileDown, FileOutput } from 'lucide-react';
 import clsx from 'clsx';
 import SummaryHeader from '@/components/SummaryHeader';
 import GeometryTable from '@/components/GeometryTable';
@@ -34,15 +34,38 @@ const tabs: TabDef[] = [
 
 interface DesignResultProps {
   report: Report;
+  sessionId: string;
+  onExportPdf: () => void;
+  onExportDxf: () => void;
 }
 
-export default function DesignResult({ report }: DesignResultProps) {
+export default function DesignResult({ report, sessionId, onExportPdf, onExportDxf }: DesignResultProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('geometry');
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6">
-      {/* Encabezado con resumen */}
-      <SummaryHeader summary={report.summary} />
+      {/* Encabezado con resumen + export buttons */}
+      <div className="flex items-start justify-between gap-4">
+        <SummaryHeader summary={report.summary} />
+        <div className="flex gap-2 shrink-0">
+          <button
+            onClick={onExportPdf}
+            className="flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition-colors"
+            title="Descargar plano PDF"
+          >
+            <FileDown className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">PDF</span>
+          </button>
+          <button
+            onClick={onExportDxf}
+            className="flex items-center gap-1.5 rounded-lg bg-zinc-800 px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition-colors"
+            title="Descargar DXF para CAD"
+          >
+            <FileOutput className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">DXF</span>
+          </button>
+        </div>
+      </div>
 
       {/* Grid principal: 3D viewer a la izquierda, datos a la derecha */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -243,6 +243,15 @@ def materials_engineer_node(state: AgentState) -> dict:
     if preferred_name:
         tool_input["preferred_material_name"] = preferred_name
 
+    # Si Agent 2 guardó min_yield_strength_mpa en state, usarlo como constraint.
+    min_sy = state.get("min_yield_strength_mpa")
+    if min_sy is not None:
+        tool_input["min_yield_strength_mpa"] = float(min_sy)
+        logger.info(
+            "[Agent 3] Usando min_yield_strength_mpa=%.0f desde Agent 2.",
+            float(min_sy),
+        )
+
     try:
         result_json = query_material_properties_tool.invoke(tool_input)
         result = json.loads(result_json)
