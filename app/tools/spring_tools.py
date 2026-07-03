@@ -31,7 +31,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from langchain_core.tools import tool
-from scipy.optimize import OptimizeResult, minimize  # type: ignore[import]
+from scipy.optimize import OptimizeResult  # type: ignore[import]
+from scipy.optimize import differential_evolution  # type: ignore[import]
 
 logger = logging.getLogger(__name__)
 
@@ -103,107 +104,159 @@ def calculate_spring_geometry_tool(
         G = shear_modulus_gpa * GPa_TO_N_MM2          # → N/mm²
         k_target = load_force_n / deflection_mm        # required spring rate N/mm
 
-        # ── Objective: minimise total wire volume V = π²/4 * d² * D * n_t ─
-        def objective(x: np.ndarray) -> float:
-            d, D, n_a = x
-            n_t = n_a + dead_coils
-            return (math.pi**2 / 4.0) * d**2 * D * n_t
+        # ── Estrategia de optimización ──────────────────────────────────────
+        # El problema 3D (d, D, n_a) con un equality constraint (spring rate)
+        # es mal condicionado porque d y D tienen escalas muy distintas y la
+        # spring rate depende de d⁴ / D³, creando una superficie casi singular.
+        #
+        # Solución: eliminar n_a como variable independiente. La spring rate
+        # determina n_a de forma única:
+        #     k = G·d⁴ / (8·D³·n_a)  →  n_a = G·d⁴ / (8·D³·k)
+        #
+        # Esto reduce el problema a 2 variables (d, D) sin equality constraints
+        # y permite usar differential_evolution (global, sin gradientes).
 
-        # ── Constraint helpers ──────────────────────────────────────────────
         # Standard requires Sf ≥ 1.3 for shear (DIN 2095 / EN 13906-1)
         TARGET_SF = 1.3
         ALLOWABLE_SHEAR_MPA = 0.45 * yield_strength_mpa / TARGET_SF
 
-        # ── Constraints ────────────────────────────────────────────────────
-        constraints = [
-            # Spring rate must match target within ±1%
-            {
-                "type": "eq",
-                "fun": lambda x: _spring_rate(x[0], x[1], x[2], G) - k_target,
-            },
-            # Shear stress safety: Ks*τ ≤ allowable (DIN: Sf ≥ 1.3)
-            {
-                "type": "ineq",
-                "fun": lambda x: (
-                    ALLOWABLE_SHEAR_MPA
-                    - _wahl_correction(x[1] / x[0])
-                    * _shear_stress(load_force_n, x[0], x[1])
-                ),
-            },
-            # Spring index bounds: 4 ≤ C ≤ 12
-            {"type": "ineq", "fun": lambda x: x[1] / x[0] - 4.0},
-            {"type": "ineq", "fun": lambda x: 12.0 - x[1] / x[0]},
-        ]
+        # ── Derived n_a ─────────────────────────────────────────────────────
+        def _active_coils(d: float, D: float) -> float:
+            """Derive active coils from spring-rate target (exact)."""
+            return G * d**4 / (8.0 * D**3 * k_target)
 
-        bounds_list = [
-            (0.5, 20.0),   # d  [mm]
-            (5.0, 200.0),  # D  [mm]
-            (2.0, 60.0),   # n_a
-        ]
+        # ── Objective with penalty (differential_evolution no acepta
+        #     constraints como callable en scipy < 1.?.?). Penalizamos
+        #     puntos inviables con volumen enorme para que DE los descarte. ─
+        PENALTY = 1e12
 
-        # Add OD constraint if provided
+        def _volume(x: np.ndarray) -> float:
+            d, D_ = float(x[0]), float(x[1])
+            if d <= 0 or D_ <= 0:
+                return PENALTY
+            n_a = _active_coils(d, D_)
+            if n_a < 1.0 or n_a > 60.0:
+                return PENALTY
+            C = D_ / d
+            if C < 4.0 or C > 12.0:
+                return PENALTY
+            # Shear stress safety: Ks·τ ≤ allowable
+            Ks = _wahl_correction(C)
+            tau = Ks * _shear_stress(load_force_n, d, D_)
+            if tau > ALLOWABLE_SHEAR_MPA:
+                return PENALTY
+            # OD constraint
+            if max_outer_diameter_mm is not None and (D_ + d) > max_outer_diameter_mm:
+                return PENALTY
+            # Free-length constraint
+            if max_free_length_mm is not None:
+                n_t = n_a + dead_coils
+                L0_est = n_t * d + deflection_mm + 2.0 * d
+                if L0_est > max_free_length_mm:
+                    return PENALTY
+            # Pasa todas las constraints → volumen real
+            n_t = n_a + dead_coils
+            return (math.pi**2 / 4.0) * d**2 * D_ * n_t
+
+        # ── Bounds ──────────────────────────────────────────────────────────
+        d_bounds = (0.5, 20.0)
+        D_max = 200.0
         if max_outer_diameter_mm is not None:
-            constraints.append(
-                {
-                    "type": "ineq",
-                    # OD = D + d ≤ max_outer_diameter_mm
-                    "fun": lambda x, od=max_outer_diameter_mm: od - (x[1] + x[0]),
-                }
-            )
-            # Tighten D upper bound
-            bounds_list[1] = (5.0, max_outer_diameter_mm - 0.5)
+            D_max = max(5.0, max_outer_diameter_mm - 0.5)
+        D_bounds = (5.0, D_max)
 
-        # Free-length constraint: L0 = (n_a + dead_coils)*d + deflection + 2*d
-        if max_free_length_mm is not None:
-            _, dead = dead_coils, 2.0  # dead coils default
-            constraints.append({
-                "type": "ineq",
-                "fun": lambda x, mfl=max_free_length_mm, dfl=deflection_mm:
-                    mfl - ((x[2] + 4.0) * x[0] + dfl),
-            })
-
-        # ── Analytical initial guess (includes Wahl factor Ks) ─────────────
-        # The old fallback formula d = (8F/(π·allowable))^(1/3) ignored the
-        # Wahl correction Ks, producing d that was always too small → Sf ≈ 0.22.
-        #
-        # Corrected approach:  τ = Ks·8·F·D/(π·d³) ;  with D = C·d:
-        #     τ = Ks·8·F·C/(π·d²)  →  d = sqrt(Ks·8·F·C / (π·allowable))
-        #
-        # We target C = 8 (mid-range spring index), compute Ks(C=8) ≈ 1.184.
-        _C_guess = 8.0
-        _Ks_guess = (4 * _C_guess - 1) / (4 * _C_guess - 4) + 0.615 / _C_guess
-        # Use a 3 % margin below the absolute allowable so that floating-point
-        # rounding never produces a geometry that JUST misses Sf ≥ 1.3.
-        _analytical_allowable = ALLOWABLE_SHEAR_MPA * 0.97
-        d0 = math.sqrt(
-            _Ks_guess * 8.0 * load_force_n * _C_guess
-            / (math.pi * _analytical_allowable)
-        )
-        D0 = _C_guess * d0
-        n0 = G * d0 ** 4 / (8.0 * D0 ** 3 * k_target)
-        x0 = np.array([d0, D0, n0])
-        logger.debug(
-            "[SpringTool] Analytical guess: d=%.3f, D=%.3f, n_a=%.1f (Ks=%.4f)",
-            d0, D0, n0, _Ks_guess,
+        # ── Run differential_evolution ──────────────────────────────────────
+        result: OptimizeResult = differential_evolution(
+            _volume,
+            bounds=[d_bounds, D_bounds],
+            seed=42,
+            maxiter=1_000,
+            tol=1e-10,
+            popsize=30,
+            mutation=(0.5, 1.5),
+            recombination=0.9,
+            polish=False,
         )
 
-        result: OptimizeResult = minimize(
-            objective,
-            x0,
-            method="SLSQP",
-            bounds=bounds_list,
-            constraints=constraints,
-            options={"ftol": 1e-9, "maxiter": 1_000},
-        )
+        d, D = result.x
+        n_a = _active_coils(d, D)
 
-        if not result.success:
+        # ── Verificación + fallback determinístico ──────────────────────────
+        # Si DE no encontró punto factible, hacemos grid search sobre C y d.
+        def _feasible(d: float, D: float) -> bool:
+            if d <= 0 or D <= 0:
+                return False
+            n = _active_coils(d, D)
+            if n < 2.0 or n > 60.0:
+                return False
+            C = D / d
+            if C < 4.0 or C > 12.0:
+                return False
+            Ks = _wahl_correction(C)
+            tau = Ks * _shear_stress(load_force_n, d, D)
+            if tau > ALLOWABLE_SHEAR_MPA:
+                return False
+            if max_outer_diameter_mm is not None and (D + d) > max_outer_diameter_mm + 0.01:
+                return False
+            if max_free_length_mm is not None:
+                n_t = n + dead_coils
+                L0_est = n_t * d + deflection_mm + 2.0 * d
+                if L0_est > max_free_length_mm + 0.01:
+                    return False
+            return True
+
+        if not _feasible(d, D):
             logger.warning(
-                "Optimizer did not converge: %s — using analytical estimate.",
-                result.message,
+                "DE opt result infeasible (d=%.3f, D=%.3f, n_a=%.1f) "
+                "— running grid fallback.",
+                d, D, n_a,
             )
-            result.x = np.array([d0, D0, n0])
+            # Grid search sobre C (4.0–12.0) y d (0.5–max_OD/2)
+            best = None
+            best_vol = float("inf")
+            d_max_grid = 20.0
+            if max_outer_diameter_mm is not None:
+                d_max_grid = max_outer_diameter_mm / 2.0
+            for C_ in [x * 0.5 for x in range(8, 25)]:  # C: 4.0–12.0 step 0.5
+                if max_outer_diameter_mm is not None:
+                    # Para este C, el diámetro máximo está limitado por OD
+                    d_ub = min(d_max_grid, max_outer_diameter_mm / (1.0 + C_))
+                else:
+                    d_ub = d_max_grid
+                for d_ in [x * 0.05 for x in range(10, int(d_ub / 0.05) + 1)]:
+                    D_ = C_ * d_
+                    if not _feasible(d_, D_):
+                        continue
+                    n = _active_coils(d_, D_)
+                    n_t = n + dead_coils
+                    vol = (math.pi**2 / 4.0) * d_**2 * D_ * n_t
+                    if vol < best_vol:
+                        best_vol = vol
+                        best = (d_, D_, n)
+            if best is not None:
+                d, D, n_a = best
+                result.success = True
+                result.message = "Grid search fallback"
+                logger.warning("Grid fallback found feasible geometry.")
+            else:
+                # No hay solución factible: reportar error
+                logger.error("No feasible geometry exists for these constraints.")
+                msg_parts = []
+                if max_outer_diameter_mm is not None:
+                    msg_parts.append(f"OD ≤ {max_outer_diameter_mm}mm")
+                if max_free_length_mm is not None:
+                    msg_parts.append(f"FL ≤ {max_free_length_mm}mm")
+                msg_parts.append(f"F={load_force_n}N, δ={deflection_mm}mm")
+                return json.dumps({
+                    "status": "error",
+                    "message": (
+                        f"Cannot design a spring satisfying all constraints "
+                        f"({' + '.join(msg_parts)}). Try relaxing OD, FL, "
+                        f"or increasing allowable stress (stronger material)."
+                    ),
+                })
 
-        d, D, n_a = result.x
+        # ── Build output ────────────────────────────────────────────────────
         n_t = n_a + dead_coils
         C = D / d
         Ks = _wahl_correction(C)
@@ -244,6 +297,9 @@ def calculate_spring_geometry_tool(
             "wahl_factor": round(Ks, 4),
             "corrected_shear_stress_mpa": round(
                 Ks * _shear_stress(load_force_n, d, D), 3
+            ),
+            "safety_factor_shear": round(
+                0.45 * yield_strength_mpa / max(Ks * _shear_stress(load_force_n, d, D), 1e-9), 3
             ),
             "slenderness_ratio": round(_slenderness_ratio(L0, D), 3),
             "torsion_moment_n_mm": (
