@@ -284,8 +284,7 @@ export default function HomePage() {
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
-  const showForm =
-    status === 'idle' || (status === 'clarifying' && response?.clarification_questions);
+  const showForm = status === 'idle';
 
   return (
     <div className="flex flex-col flex-1 gap-8">
@@ -331,13 +330,27 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Clarificación: preguntas separadas */}
+      {/* Clarificación: texto original + preguntas separadas */}
       {status === 'clarifying' && response?.clarification_questions && (
-        <ClarificationDialog
-          questions={response.clarification_questions}
-          onSubmit={handleClarify}
-          isLoading={false}
-        />
+        <div className="flex flex-col gap-4 w-full max-w-2xl mx-auto">
+          {/* Prompt original */}
+          <Card className="border-zinc-700/50">
+            <div className="flex flex-col gap-1.5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Tu solicitud original
+              </p>
+              <p className="text-sm text-zinc-300 leading-relaxed">
+                {lastInput}
+              </p>
+            </div>
+          </Card>
+
+          <ClarificationDialog
+            questions={response.clarification_questions}
+            onSubmit={handleClarify}
+            isLoading={false}
+          />
+        </div>
       )}
 
       {/* Éxito */}

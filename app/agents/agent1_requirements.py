@@ -75,15 +75,15 @@ def _determine_completeness(data: dict) -> tuple[bool, list[str]]:
     questions: list[str] = []
 
     if not has_load and not has_rate:
-        questions.append("What load force (in Newtons) does the spring need to support?")
+        questions.append("¿Qué fuerza de carga (en Newtons) debe soportar el resorte?")
     elif not has_load:
-        questions.append("What load force (in Newtons) does the spring need to support?")
+        questions.append("¿Qué fuerza de carga (en Newtons) debe soportar el resorte?")
 
     if not has_deflection and not has_rate:
-        questions.append("How much deflection (in mm) do you need?")
+        questions.append("¿Cuánta deflexión (en mm) necesita?")
 
     if spring_type in ("unknown", "unknown"):
-        questions.append("What type of spring is this? (compression, extension, or torsion)")
+        questions.append("¿Qué tipo de resorte es? (compresión, tracción o torsión)")
 
     # For a valid design we need: (load OR rate) AND (deflection OR rate)
     is_complete = (has_load or has_rate) and (has_deflection or has_rate)
