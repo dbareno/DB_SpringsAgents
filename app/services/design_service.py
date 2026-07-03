@@ -456,7 +456,7 @@ def _project_to_response(project: Any) -> DesignResponse:
     return DesignResponse(
         session_id=project.session_id,
         status=api_status,
-        report=final_report if api_status == "approved" else None,
+        report=final_report if api_status in ("approved", "iteration_limit_reached") else None,
         clarification_questions=(
             final_report.get("clarification_questions")
             if api_status == "needs_clarification"

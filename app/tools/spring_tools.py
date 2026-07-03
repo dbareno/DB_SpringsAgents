@@ -79,6 +79,7 @@ def calculate_spring_geometry_tool(
     shear_modulus_gpa: float = 79.3,
     yield_strength_mpa: float = 1_500.0,
     dead_coils: float = 2.0,
+    cyclic_load: bool = False,
 ) -> str:
     """
     Compute optimal helical spring geometry using scipy.optimize.minimize.
@@ -86,6 +87,10 @@ def calculate_spring_geometry_tool(
     This tool solves for the best combination of wire diameter (d), mean coil
     diameter (D), and active coil count (n_a) that satisfies the required
     spring rate while minimising total wire volume (∝ material cost).
+
+    When ``cyclic_load=True``, the optimizer also rejects geometries that
+    fail the Goodman fatigue criterion (Sf_fatigue ≥ 1.3), preventing the
+    loop of "stronger material → thinner wire → worse fatigue."
 
     Args:
         spring_type:          One of 'compression', 'extension', 'torsion'.
@@ -96,6 +101,7 @@ def calculate_spring_geometry_tool(
         shear_modulus_gpa:    G of the chosen material in GPa (default: 79.3 = steel).
         yield_strength_mpa:   Sy of the material in MPa (default: 1500).
         dead_coils:           Non-active (dead) coils at each end (default: 2.0 total).
+        cyclic_load:          If True, rejects designs failing Goodman fatigue Sf ≥ 1.3.
 
     Returns:
         JSON string with the computed geometry dict or an error message.
@@ -130,6 +136,27 @@ def calculate_spring_geometry_tool(
         #     puntos inviables con volumen enorme para que DE los descarte. ─
         PENALTY = 1e12
 
+        # ── Pre-compute Goodman fatigue constants (if cyclic) ───────────────
+        if cyclic_load and load_force_n > 0:
+            _F_min = 0.1 * load_force_n
+            _F_max = load_force_n
+            _F_mean = (_F_max + _F_min) / 2.0
+            _F_alt = (_F_max - _F_min) / 2.0
+            _Sut_approx = 1.25 * yield_strength_mpa
+            _Ses = 0.324 * _Sut_approx  # endurance limit in shear
+            _Ssy = 0.45 * yield_strength_mpa
+
+            def _goodman_ok(d: float, D_: float, Ks: float) -> bool:
+                """Goodman fatigue Sf >= 1.3 (same assumption as Agent 4)."""
+                tau_mean = Ks * _shear_stress(_F_mean, d, D_)
+                tau_alt = Ks * _shear_stress(_F_alt, d, D_)
+                goodman_lhs = (tau_alt / _Ses) + (tau_mean / _Ssy)
+                sf_fatigue = 1.0 / goodman_lhs if goodman_lhs > 0 else float("inf")
+                return sf_fatigue >= 1.3
+        else:
+            def _goodman_ok(d: float, D_: float, Ks: float) -> bool:
+                return True
+
         def _volume(x: np.ndarray) -> float:
             d, D_ = float(x[0]), float(x[1])
             if d <= 0 or D_ <= 0:
@@ -144,6 +171,8 @@ def calculate_spring_geometry_tool(
             Ks = _wahl_correction(C)
             tau = Ks * _shear_stress(load_force_n, d, D_)
             if tau > ALLOWABLE_SHEAR_MPA:
+                return PENALTY
+            if not _goodman_ok(d, D_, Ks):
                 return PENALTY
             # OD constraint
             if max_outer_diameter_mm is not None and (D_ + d) > max_outer_diameter_mm:
@@ -195,6 +224,8 @@ def calculate_spring_geometry_tool(
             Ks = _wahl_correction(C)
             tau = Ks * _shear_stress(load_force_n, d, D)
             if tau > ALLOWABLE_SHEAR_MPA:
+                return False
+            if not _goodman_ok(d, D, Ks):
                 return False
             if max_outer_diameter_mm is not None and (D + d) > max_outer_diameter_mm + 0.01:
                 return False
@@ -708,6 +739,7 @@ def redesign_advisor_tool(
     max_free_length_mm: float | None = None,
     safety_factor_shear: float | None = None,
     safety_factor_buckling: float | None = None,
+    safety_factor_fatigue: float | None = None,
     slenderness_ratio: float | None = None,
     failure_modes: str = "[]",
 ) -> str:
@@ -769,6 +801,31 @@ def redesign_advisor_tool(
                 f"Shear Sf={sf_shear:.3f} < {Sf_target}: aumentar d en un ~{d_delta_pct}%, "
                 f"o reducir D en un ~{D_delta_pct}%, o usar material con Sy≥{sy_needed:.0f}MPa "
                 f"(actual Sy={Sy:.0f}MPa)."
+            )
+
+        # ── 1b. Fatigue (Goodman) ─────────────────────────────────────────
+        sf_fatigue = safety_factor_fatigue if safety_factor_fatigue else None
+        if sf_fatigue is not None and sf_fatigue < Sf_target - 1e-4:
+            ratio = Sf_target / sf_fatigue
+            # Fatigue Sf ∝ d³/D (same as shear). But can also improve by
+            # reducing the load range (less practical at this level).
+            # Recommend the same wire/strength adjustments as shear.
+            d_factor = ratio ** (1.0 / 3.0)
+            d_delta_pct = round((d_factor - 1.0) * 100.0, 1)
+            sy_needed = round(Sy * ratio, 0)
+
+            # Take the more aggressive of shear vs fatigue adjustments
+            existing_d = adjustments.get("wire_diameter_mm", 0.0)
+            if abs(d_delta_pct) > abs(existing_d):
+                adjustments["wire_diameter_mm"] = d_delta_pct
+            existing_sy = material_constraints.get("min_yield_strength_mpa", 0)
+            if sy_needed > existing_sy:
+                material_constraints["min_yield_strength_mpa"] = sy_needed
+
+            suggestions.append(
+                f"Fatigue Goodman Sf={sf_fatigue:.3f} < {Sf_target}: aumentar d en ~{d_delta_pct}%, "
+                f"o usar material con Sy≥{sy_needed:.0f}MPa. "
+                f"Shot peening también mejora vida en fatiga 2.5×."
             )
 
         # ── 2. Buckling ───────────────────────────────────────────────────

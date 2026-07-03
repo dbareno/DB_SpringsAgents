@@ -28,6 +28,10 @@ env/
 htmlcov/
 *.xml
 
+# E2E generated artifacts
+_e2e_*.dxf
+_e2e_*.pdf
+
 # Type checking
 .mypy_cache/
 

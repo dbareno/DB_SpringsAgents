@@ -120,6 +120,7 @@ def design_engineer_node(state: AgentState) -> dict:
             "max_free_length_mm": requirements.max_free_length_mm,
             "shear_modulus_gpa": G,
             "yield_strength_mpa": Sy,
+            "cyclic_load": requirements.cyclic_load or False,
         }
         # If redesign directives exist, use LLM to adjust parameters
         if redesign_directives:
@@ -137,6 +138,7 @@ def design_engineer_node(state: AgentState) -> dict:
             "max_free_length_mm": requirements.max_free_length_mm,
             "shear_modulus_gpa": G,
             "yield_strength_mpa": Sy,
+            "cyclic_load": requirements.cyclic_load or False,
         }
         if redesign_directives:
             return _adjust_and_design(
@@ -250,6 +252,7 @@ def _adjust_and_design(
             "max_free_length_mm": base_tool_input.get("max_free_length_mm"),
             "safety_factor_shear": compliance.safety_factor_shear if compliance else None,
             "safety_factor_buckling": compliance.safety_factor_buckling if compliance else None,
+            "safety_factor_fatigue": compliance.safety_factor_fatigue if compliance else None,
             "slenderness_ratio": geometry.free_length_mm / max(geometry.mean_coil_diameter_mm, 0.001)
                                   if geometry else None,
             "failure_modes": json.dumps(compliance.failure_modes if compliance else []),

@@ -190,39 +190,22 @@ class TestRootEndpoint:
 class TestHealthEndpoint:
     """Tests para el endpoint GET /health.
 
-    NOTA: Cuando el frontend existe, el catch-all ``/{full_path:path}``
-    sombrea la ruta /health y retorna 404 (porque ``health`` esta en la
-    lista de exclusion del catch-all).
+    /health SIEMPRE retorna 200 independientemente de si el frontend
+    existe, porque la ruta se registra explicitamente ANTES del catch-all
+    ``/{full_path:path}`` y FastAPI resuelve rutas mas especificas primero.
     """
 
     async def test_health_returns_healthy(self, client: AsyncClient) -> None:
         """
-        Verifica que GET /health retorna un status healthy.
-        Cuando el frontend existe, el catch-all retorna 404.
+        Verifica que GET /health retorna un status healthy siempre.
+        El catch-all del frontend NO sombrea /health porque se registra
+        despues en el orden de rutas de FastAPI.
         """
         response = await client.get("/health")
-
-        import os
-
-        frontend_path = (
-            os.path.join(
-                os.path.dirname(os.path.abspath(__file__)),
-                "..",
-                "frontend",
-                "out",
-            )
-        )
-
-        if os.path.isdir(frontend_path):
-            # Con frontend: catch-all retorna 404 (health esta en exclusion)
-            assert response.status_code == 404
-            data = response.json()
-            assert "not found" in data.get("detail", "").casefold()
-        else:
-            assert response.status_code == 200
-            data = response.json()
-            assert data["status"] == "healthy"
-            assert data["version"] == "0.1.0"
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "healthy"
+        assert data["version"] == "0.1.0"
 
     async def test_health_is_json_response(self, client: AsyncClient) -> None:
         """Verifica que /health retorna content-type JSON en cualquier escenario."""
