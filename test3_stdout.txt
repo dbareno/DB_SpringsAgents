@@ -1,0 +1,157 @@
+2026-07-02 21:09:04,639 | INFO     | app.main | Frontend static build detected at C:\Users\Diego\AppData\Local\Temp\_MEI17962\frontend\out — serving SPA.
+=======================================================
+  Spring Design Agent - Standalone
+=======================================================
+
+  -> Opening browser at http://127.0.0.1:8000
+  -> Press Ctrl+C to stop the server.
+
+2026-07-02 21:09:04,750 | INFO     | app.main | === Spring Design Agent API starting up ===
+2026-07-02 21:09:04,778 | INFO     | app.main | LLM priority order: ['ollama', 'gemini', 'grok', 'openai', 'anthropic']
+INFO:     127.0.0.1:60729 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60729 - "GET /_next/static/media/797e433ab948586e-s.p.0r6juujl39pe6.woff2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60731 - "GET /_next/static/chunks/3-8xu5c7uzzv3.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60730 - "GET /_next/static/media/caa3a2e1cccd8315-s.p.0wgildi0cnwt9.woff2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60730 - "GET /_next/static/chunks/1cxe7yfa6_uqi.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60730 - "GET /_next/static/chunks/103ga-igw_6p2.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60730 - "GET /_next/static/chunks/3rxl-jt3pdxgx.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60730 - "GET /_next/static/chunks/turbopack-178ozb3p-jd8u.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60731 - "GET /_next/static/chunks/256whwvw_y7jv.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60729 - "GET /_next/static/chunks/2k7hozez1lebt.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60732 - "GET /_next/static/chunks/30dklf6anpbl7.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60732 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60732 - "GET /favicon.ico?favicon.2vob68tjqpejf.ico HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60768 - "GET / HTTP/1.1" 200 OK
+2026-07-02 21:09:53,251 | WARNING  | app.db.session | PostgreSQL unavailable ([WinError 1225] El equipo remoto rechazó la conexión de red). Falling back to SQLite.
+2026-07-02 21:09:54,238 | INFO     | app.db.session | Database: SQLite (spring_design_agent.db)
+INFO:     127.0.0.1:60773 - "POST /api/v1/design/ HTTP/1.1" 200 OK
+2026-07-02 21:09:54,352 | INFO     | app.agents.agent1_requirements | [Agent 1] Requirements Analyst started.
+2026-07-02 21:09:54,352 | INFO     | app.agents.agent1_requirements | [Agent 1] raw_input length=120, starts_with='Necesito un resorte de 50N a compresion con 10mm de deflexion, diametro exterior'
+2026-07-02 21:09:54,776 | INFO     | app.core.llm_factory | Initializing Ollama local provider: model=qwen2.5:7b, base_url=http://localhost:11434
+2026-07-02 21:09:55,177 | INFO     | app.core.llm_factory | Active LLM provider set to 'ollama'.
+2026-07-02 21:09:59,959 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 21:10:01,366 | INFO     | app.agents.agent1_requirements | [Agent 1] === RAW INPUT (last 10 lines) ===
+Necesito un resorte de 50N a compresion con 10mm de deflexion, diametro exterior maximo 50mm, longitud libre maxima 20mm
+2026-07-02 21:10:01,367 | INFO     | app.agents.agent1_requirements | [Agent 1] Regex extracted — F=50.0, δ=10.0, k=None, OD=50.0, FL=20, T=None, corr=False, cyclic=False, cycles=None
+2026-07-02 21:10:01,368 | INFO     | app.agents.agent1_requirements | [Agent 1] Derived k=5.00 N/mm from F=50.0 / δ=10.0
+2026-07-02 21:10:01,368 | INFO     | app.agents.agent1_requirements | [Agent 1] Tasa elástica: 5.00 N/mm (calculada de F=50N / δ=10.0mm)
+2026-07-02 21:10:01,369 | INFO     | app.agents.agent1_requirements | [Agent 1] Extraction complete. is_complete=True, spring_type=compression, questions=1
+2026-07-02 21:10:01,369 | INFO     | app.agents.agent1_requirements | [Agent 1]   Q1: ¿Cuál es la temperatura de operación (en °C)? (opcional — default 20°C)
+2026-07-02 21:10:01,370 | INFO     | app.agents.agent6_orchestrator | [Router] Requirements complete → design_loop.
+2026-07-02 21:10:01,371 | INFO     | app.agents.agent3_materials | [Agent 3] Materials Engineer started.
+2026-07-02 21:10:02,061 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 21:10:02,861 | INFO     | app.agents.agent3_materials | [Agent 3] Selected material: ASTM A228 Music Wire (G=81.5 GPa, Sy=1580 MPa, $3.80/kg)
+2026-07-02 21:10:02,862 | INFO     | app.agents.agent2_design | [Agent 2] Design Engineer started.
+2026-07-02 21:10:02,870 | WARNING  | app.tools.spring_tools | Optimizer did not converge: Positive directional derivative for linesearch — using analytical estimate.
+2026-07-02 21:10:02,870 | WARNING  | app.tools.spring_tools | Computed free length 24.72 mm exceeds constraint 20.00 mm.
+2026-07-02 21:10:02,871 | INFO     | app.agents.agent2_design | [Agent 2] Geometry computed: d=1.485 mm, D=11.880 mm, n_a=5.9
+2026-07-02 21:10:02,871 | INFO     | app.agents.agent4_compliance | [Agent 4] Normative Inspector started.
+2026-07-02 21:10:02,875 | WARNING  | app.db.chromadb_client | ChromaDB server unreachable (No module named 'chromadb.telemetry.product.posthog'). Falling back to in-memory client.
+2026-07-02 21:10:02,875 | WARNING  | app.agents.agent4_compliance | [Agent 4] ChromaDB query failed (falling back to hardcoded checks): No module named 'chromadb.telemetry.product.posthog'
+2026-07-02 21:10:02,875 | INFO     | app.agents.agent4_compliance | [Agent 4] Compliance result: REJECTED ✗ | Sf_shear=1.300 | Sf_buckling=2.528
+2026-07-02 21:10:02,876 | INFO     | app.agents.agent6_orchestrator | [Router] Design rejected (iteration 1/6) → redesign loop.
+2026-07-02 21:10:02,877 | INFO     | app.agents.agent6_orchestrator | [Orchestrator] Redesign directives for iteration 1:
+  → Reduce free length by using fewer active coils or a smaller wire diameter. Compensate with larger D if needed to maintain spring rate.
+2026-07-02 21:10:02,877 | INFO     | app.agents.agent3_materials | [Agent 3] Materials Engineer started.
+2026-07-02 21:10:03,052 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 21:10:03,890 | INFO     | app.agents.agent3_materials | [Agent 3] Selected material: ASTM A228 Music Wire (G=81.5 GPa, Sy=1580 MPa, $3.80/kg)
+2026-07-02 21:10:03,891 | INFO     | app.agents.agent2_design | [Agent 2] Design Engineer started.
+2026-07-02 21:10:03,891 | INFO     | app.agents.agent2_design | [Agent 2] Redesign iteration — applying directives: Reduce free length by using fewer active coils or a smaller wire diameter. Compensate with larger D if needed to maintain spring rate.
+2026-07-02 21:10:04,234 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 21:10:05,433 | INFO     | app.agents.agent2_design | [Agent 2] Adjusted tool_input based on redesign directives.
+2026-07-02 21:10:05,443 | WARNING  | app.tools.spring_tools | Optimizer did not converge: Positive directional derivative for linesearch — using analytical estimate.
+2026-07-02 21:10:05,443 | WARNING  | app.tools.spring_tools | Computed free length 52.51 mm exceeds constraint 15.00 mm.
+2026-07-02 21:10:05,443 | INFO     | app.agents.agent2_design | [Agent 2] Redesign geometry: d=2.783 mm, D=22.260 mm, n_a=11.3
+2026-07-02 21:10:05,444 | INFO     | app.agents.agent4_compliance | [Agent 4] Normative Inspector started.
+2026-07-02 21:10:05,447 | WARNING  | app.db.chromadb_client | ChromaDB server unreachable (No module named 'chromadb.telemetry.product.posthog'). Falling back to in-memory client.
+2026-07-02 21:10:05,447 | WARNING  | app.agents.agent4_compliance | [Agent 4] ChromaDB query failed (falling back to hardcoded checks): No module named 'chromadb.api.rust'
+2026-07-02 21:10:05,448 | INFO     | app.agents.agent4_compliance | [Agent 4] Compliance result: REJECTED ✗ | Sf_shear=4.567 | Sf_buckling=2.230
+2026-07-02 21:10:05,448 | INFO     | app.agents.agent6_orchestrator | [Router] Design rejected (iteration 2/6) → redesign loop.
+2026-07-02 21:10:05,449 | INFO     | app.agents.agent6_orchestrator | [Orchestrator] Redesign directives for iteration 2:
+  → Reduce free length by using fewer active coils or a smaller wire diameter. Compensate with larger D if needed to maintain spring rate.
+2026-07-02 21:10:05,450 | INFO     | app.agents.agent3_materials | [Agent 3] Materials Engineer started.
+2026-07-02 21:10:05,646 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 21:10:06,625 | INFO     | app.agents.agent3_materials | [Agent 3] Selected material: ASTM A228 Music Wire (G=81.5 GPa, Sy=1580 MPa, $3.80/kg)
+2026-07-02 21:10:06,626 | INFO     | app.agents.agent2_design | [Agent 2] Design Engineer started.
+2026-07-02 21:10:06,627 | INFO     | app.agents.agent2_design | [Agent 2] Redesign iteration — applying directives: Reduce free length by using fewer active coils or a smaller wire diameter. Compensate with larger D if needed to maintain spring rate.
+2026-07-02 21:10:06,848 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 21:10:08,050 | INFO     | app.agents.agent2_design | [Agent 2] Adjusted tool_input based on redesign directives.
+2026-07-02 21:10:08,061 | WARNING  | app.tools.spring_tools | Optimizer did not converge: Positive directional derivative for linesearch — using analytical estimate.
+2026-07-02 21:10:08,062 | WARNING  | app.tools.spring_tools | Computed free length 52.51 mm exceeds constraint 15.00 mm.
+2026-07-02 21:10:08,063 | INFO     | app.agents.agent2_design | [Agent 2] Redesign geometry: d=2.783 mm, D=22.260 mm, n_a=11.3
+2026-07-02 21:10:08,063 | INFO     | app.agents.agent4_compliance | [Agent 4] Normative Inspector started.
+2026-07-02 21:10:08,067 | WARNING  | app.db.chromadb_client | ChromaDB server unreachable (No module named 'chromadb.telemetry.product.posthog'). Falling back to in-memory client.
+2026-07-02 21:10:08,067 | WARNING  | app.agents.agent4_compliance | [Agent 4] ChromaDB query failed (falling back to hardcoded checks): No module named 'chromadb.telemetry.product.posthog'
+2026-07-02 21:10:08,067 | INFO     | app.agents.agent4_compliance | [Agent 4] Compliance result: REJECTED ✗ | Sf_shear=4.567 | Sf_buckling=2.230
+2026-07-02 21:10:08,068 | INFO     | app.agents.agent6_orchestrator | [Router] Design rejected (iteration 3/6) → redesign loop.
+2026-07-02 21:10:08,069 | INFO     | app.agents.agent6_orchestrator | [Orchestrator] Redesign directives for iteration 3:
+  → Reduce free length by using fewer active coils or a smaller wire diameter. Compensate with larger D if needed to maintain spring rate.
+2026-07-02 21:10:08,069 | INFO     | app.agents.agent3_materials | [Agent 3] Materials Engineer started.
+2026-07-02 21:10:08,281 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 21:10:09,117 | INFO     | app.agents.agent3_materials | [Agent 3] Selected material: ASTM A228 Music Wire (G=81.5 GPa, Sy=1580 MPa, $3.80/kg)
+2026-07-02 21:10:09,118 | INFO     | app.agents.agent2_design | [Agent 2] Design Engineer started.
+2026-07-02 21:10:09,119 | INFO     | app.agents.agent2_design | [Agent 2] Redesign iteration — applying directives: Reduce free length by using fewer active coils or a smaller wire diameter. Compensate with larger D if needed to maintain spring rate.
+2026-07-02 21:10:09,338 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 21:10:10,540 | INFO     | app.agents.agent2_design | [Agent 2] Adjusted tool_input based on redesign directives.
+2026-07-02 21:10:10,549 | WARNING  | app.tools.spring_tools | Optimizer did not converge: Positive directional derivative for linesearch — using analytical estimate.
+2026-07-02 21:10:10,549 | WARNING  | app.tools.spring_tools | Computed free length 52.51 mm exceeds constraint 15.00 mm.
+2026-07-02 21:10:10,550 | INFO     | app.agents.agent2_design | [Agent 2] Redesign geometry: d=2.783 mm, D=22.260 mm, n_a=11.3
+2026-07-02 21:10:10,550 | INFO     | app.agents.agent4_compliance | [Agent 4] Normative Inspector started.
+2026-07-02 21:10:10,554 | WARNING  | app.db.chromadb_client | ChromaDB server unreachable (No module named 'chromadb.telemetry.product.posthog'). Falling back to in-memory client.
+2026-07-02 21:10:10,554 | WARNING  | app.agents.agent4_compliance | [Agent 4] ChromaDB query failed (falling back to hardcoded checks): No module named 'chromadb.api.rust'
+2026-07-02 21:10:10,555 | INFO     | app.agents.agent4_compliance | [Agent 4] Compliance result: REJECTED ✗ | Sf_shear=4.567 | Sf_buckling=2.230
+2026-07-02 21:10:10,555 | INFO     | app.agents.agent6_orchestrator | [Router] Design rejected (iteration 4/6) → redesign loop.
+2026-07-02 21:10:10,556 | INFO     | app.agents.agent6_orchestrator | [Orchestrator] Redesign directives for iteration 4:
+  → Reduce free length by using fewer active coils or a smaller wire diameter. Compensate with larger D if needed to maintain spring rate.
+2026-07-02 21:10:10,556 | INFO     | app.agents.agent3_materials | [Agent 3] Materials Engineer started.
+2026-07-02 21:10:10,753 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 21:10:11,687 | INFO     | app.agents.agent3_materials | [Agent 3] Selected material: ASTM A228 Music Wire (G=81.5 GPa, Sy=1580 MPa, $3.80/kg)
+2026-07-02 21:10:11,688 | INFO     | app.agents.agent2_design | [Agent 2] Design Engineer started.
+2026-07-02 21:10:11,688 | INFO     | app.agents.agent2_design | [Agent 2] Redesign iteration — applying directives: Reduce free length by using fewer active coils or a smaller wire diameter. Compensate with larger D if needed to maintain spring rate.
+2026-07-02 21:10:11,888 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 21:10:13,069 | INFO     | app.agents.agent2_design | [Agent 2] Adjusted tool_input based on redesign directives.
+2026-07-02 21:10:13,078 | WARNING  | app.tools.spring_tools | Optimizer did not converge: Positive directional derivative for linesearch — using analytical estimate.
+2026-07-02 21:10:13,078 | WARNING  | app.tools.spring_tools | Computed free length 52.51 mm exceeds constraint 15.00 mm.
+2026-07-02 21:10:13,079 | INFO     | app.agents.agent2_design | [Agent 2] Redesign geometry: d=2.783 mm, D=22.260 mm, n_a=11.3
+2026-07-02 21:10:13,079 | INFO     | app.agents.agent4_compliance | [Agent 4] Normative Inspector started.
+2026-07-02 21:10:13,082 | WARNING  | app.db.chromadb_client | ChromaDB server unreachable (No module named 'chromadb.telemetry.product.posthog'). Falling back to in-memory client.
+2026-07-02 21:10:13,083 | WARNING  | app.agents.agent4_compliance | [Agent 4] ChromaDB query failed (falling back to hardcoded checks): No module named 'chromadb.telemetry.product.posthog'
+2026-07-02 21:10:13,083 | INFO     | app.agents.agent4_compliance | [Agent 4] Compliance result: REJECTED ✗ | Sf_shear=4.567 | Sf_buckling=2.230
+2026-07-02 21:10:13,083 | INFO     | app.agents.agent6_orchestrator | [Router] Design rejected (iteration 5/6) → redesign loop.
+2026-07-02 21:10:13,084 | INFO     | app.agents.agent6_orchestrator | [Orchestrator] Redesign directives for iteration 5:
+  → Reduce free length by using fewer active coils or a smaller wire diameter. Compensate with larger D if needed to maintain spring rate.
+2026-07-02 21:10:13,085 | INFO     | app.agents.agent3_materials | [Agent 3] Materials Engineer started.
+2026-07-02 21:10:13,296 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 21:10:14,132 | INFO     | app.agents.agent3_materials | [Agent 3] Selected material: ASTM A228 Music Wire (G=81.5 GPa, Sy=1580 MPa, $3.80/kg)
+2026-07-02 21:10:14,133 | INFO     | app.agents.agent2_design | [Agent 2] Design Engineer started.
+2026-07-02 21:10:14,133 | INFO     | app.agents.agent2_design | [Agent 2] Redesign iteration — applying directives: Reduce free length by using fewer active coils or a smaller wire diameter. Compensate with larger D if needed to maintain spring rate.
+2026-07-02 21:10:14,329 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 21:10:15,532 | INFO     | app.agents.agent2_design | [Agent 2] Adjusted tool_input based on redesign directives.
+2026-07-02 21:10:15,543 | WARNING  | app.tools.spring_tools | Optimizer did not converge: Positive directional derivative for linesearch — using analytical estimate.
+2026-07-02 21:10:15,544 | WARNING  | app.tools.spring_tools | Computed free length 52.51 mm exceeds constraint 15.00 mm.
+2026-07-02 21:10:15,545 | INFO     | app.agents.agent2_design | [Agent 2] Redesign geometry: d=2.783 mm, D=22.260 mm, n_a=11.3
+2026-07-02 21:10:15,545 | INFO     | app.agents.agent4_compliance | [Agent 4] Normative Inspector started.
+2026-07-02 21:10:15,549 | WARNING  | app.db.chromadb_client | ChromaDB server unreachable (No module named 'chromadb.telemetry.product.posthog'). Falling back to in-memory client.
+2026-07-02 21:10:15,549 | WARNING  | app.agents.agent4_compliance | [Agent 4] ChromaDB query failed (falling back to hardcoded checks): No module named 'chromadb.api.rust'
+2026-07-02 21:10:15,555 | INFO     | app.agents.agent4_compliance | [Agent 4] Compliance result: REJECTED ✗ | Sf_shear=4.567 | Sf_buckling=2.230
+2026-07-02 21:10:15,588 | INFO     | app.agents.agent6_orchestrator | [Router] Design rejected (iteration 6/6) → redesign loop.
+2026-07-02 21:10:15,612 | INFO     | app.agents.agent6_orchestrator | [Orchestrator] Redesign directives for iteration 6:
+  → Reduce free length by using fewer active coils or a smaller wire diameter. Compensate with larger D if needed to maintain spring rate.
+2026-07-02 21:10:15,687 | INFO     | app.agents.agent3_materials | [Agent 3] Materials Engineer started.
+2026-07-02 21:10:15,897 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 21:10:16,744 | INFO     | app.agents.agent3_materials | [Agent 3] Selected material: ASTM A228 Music Wire (G=81.5 GPa, Sy=1580 MPa, $3.80/kg)
+2026-07-02 21:10:16,796 | INFO     | app.agents.agent2_design | [Agent 2] Design Engineer started.
+2026-07-02 21:10:16,811 | INFO     | app.agents.agent2_design | [Agent 2] Redesign iteration — applying directives: Reduce free length by using fewer active coils or a smaller wire diameter. Compensate with larger D if needed to maintain spring rate.
+2026-07-02 21:10:17,095 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 21:10:18,315 | INFO     | app.agents.agent2_design | [Agent 2] Adjusted tool_input based on redesign directives.
+2026-07-02 21:10:18,471 | WARNING  | app.tools.spring_tools | Optimizer did not converge: Positive directional derivative for linesearch — using analytical estimate.
+2026-07-02 21:10:18,489 | WARNING  | app.tools.spring_tools | Computed free length 52.51 mm exceeds constraint 15.00 mm.
+2026-07-02 21:10:18,519 | INFO     | app.agents.agent2_design | [Agent 2] Redesign geometry: d=2.783 mm, D=22.260 mm, n_a=11.3
+2026-07-02 21:10:18,628 | INFO     | app.agents.agent4_compliance | [Agent 4] Normative Inspector started.
+2026-07-02 21:10:18,644 | WARNING  | app.db.chromadb_client | ChromaDB server unreachable (No module named 'chromadb.telemetry.product.posthog'). Falling back to in-memory client.
+2026-07-02 21:10:18,775 | WARNING  | app.agents.agent4_compliance | [Agent 4] ChromaDB query failed (falling back to hardcoded checks): No module named 'chromadb.telemetry.product.posthog'
+2026-07-02 21:10:18,844 | INFO     | app.agents.agent4_compliance | [Agent 4] Compliance result: REJECTED ✗ | Sf_shear=4.567 | Sf_buckling=2.230
+2026-07-02 21:10:18,862 | WARNING  | app.agents.agent6_orchestrator | [Router] Max iterations (6) reached. Cannot satisfy constraints.
+2026-07-02 21:10:18,881 | ERROR    | app.agents.agent6_orchestrator | [Orchestrator] Iteration limit reached. Surfacing last state.
+2026-07-02 21:10:19,124 | INFO     | app.services.design_service | [DesignService] Graph completed for 425790dc-369c-4150-82f5-c3ffe344d697. Status: iteration_limit_reached
+INFO:     127.0.0.1:60890 - "GET /api/v1/design/425790dc-369c-4150-82f5-c3ffe344d697/status HTTP/1.1" 200 OK

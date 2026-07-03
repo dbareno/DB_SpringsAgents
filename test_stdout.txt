@@ -1,0 +1,138 @@
+2026-07-02 20:57:28,271 | INFO     | app.main | Frontend static build detected at C:\Users\Diego\AppData\Local\Temp\_MEI30802\frontend\out — serving SPA.
+=======================================================
+  Spring Design Agent - Standalone
+=======================================================
+
+  -> Opening browser at http://127.0.0.1:8000
+  -> Press Ctrl+C to stop the server.
+
+2026-07-02 20:57:28,489 | INFO     | app.main | === Spring Design Agent API starting up ===
+2026-07-02 20:57:28,509 | INFO     | app.main | LLM priority order: ['ollama', 'gemini', 'grok', 'openai', 'anthropic']
+INFO:     127.0.0.1:59900 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59900 - "GET /_next/static/media/797e433ab948586e-s.p.0r6juujl39pe6.woff2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59901 - "GET /_next/static/media/caa3a2e1cccd8315-s.p.0wgildi0cnwt9.woff2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59902 - "GET /_next/static/chunks/3-8xu5c7uzzv3.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59902 - "GET /_next/static/chunks/1cxe7yfa6_uqi.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59902 - "GET /_next/static/chunks/103ga-igw_6p2.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59902 - "GET /_next/static/chunks/3rxl-jt3pdxgx.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59902 - "GET /_next/static/chunks/turbopack-178ozb3p-jd8u.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59902 - "GET /_next/static/chunks/256whwvw_y7jv.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59902 - "GET /_next/static/chunks/2k7hozez1lebt.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59902 - "GET /_next/static/chunks/30dklf6anpbl7.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59902 - "GET /favicon.ico HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59902 - "GET /favicon.ico?favicon.2vob68tjqpejf.ico HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59935 - "POST /api/v1/design/ HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:59939 - "POST /api/v1/design/ HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:59949 - "POST /api/v1/design/ HTTP/1.1" 400 Bad Request
+INFO:     127.0.0.1:59953 - "POST /api/v1/design/ HTTP/1.1" 422 Unprocessable Entity
+INFO:     127.0.0.1:59959 - "POST /api/v1/design/ HTTP/1.1" 422 Unprocessable Entity
+2026-07-02 20:58:35,867 | WARNING  | app.db.session | PostgreSQL unavailable ([WinError 1225] El equipo remoto rechazó la conexión de red). Falling back to SQLite.
+2026-07-02 20:58:36,249 | INFO     | app.db.session | Database: SQLite (spring_design_agent.db)
+INFO:     127.0.0.1:59963 - "POST /api/v1/design/ HTTP/1.1" 200 OK
+2026-07-02 20:58:36,363 | INFO     | app.agents.agent1_requirements | [Agent 1] Requirements Analyst started.
+2026-07-02 20:58:36,363 | INFO     | app.agents.agent1_requirements | [Agent 1] raw_input length=120, starts_with='Necesito un resorte de 50N a compresion con 10mm de deflexion, diametro exterior'
+2026-07-02 20:58:36,724 | INFO     | app.core.llm_factory | Initializing Ollama local provider: model=qwen2.5:7b, base_url=http://localhost:11434
+2026-07-02 20:58:37,070 | INFO     | app.core.llm_factory | Active LLM provider set to 'ollama'.
+2026-07-02 20:58:41,600 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 20:58:42,998 | INFO     | app.agents.agent1_requirements | [Agent 1] === RAW INPUT (last 10 lines) ===
+Necesito un resorte de 50N a compresion con 10mm de deflexion, diametro exterior maximo 50mm, longitud libre maxima 20mm
+2026-07-02 20:58:42,999 | INFO     | app.agents.agent1_requirements | [Agent 1] Regex extracted — F=50.0, δ=10.0, k=None, OD=50.0, FL=20, T=None, corr=False, cyclic=False, cycles=None
+2026-07-02 20:58:42,999 | INFO     | app.agents.agent1_requirements | [Agent 1] Derived k=5.00 N/mm from F=50.0 / δ=10.0
+2026-07-02 20:58:42,999 | INFO     | app.agents.agent1_requirements | [Agent 1] Tasa elástica: 5.00 N/mm (calculada de F=50N / δ=10.0mm)
+2026-07-02 20:58:43,000 | INFO     | app.agents.agent1_requirements | [Agent 1] Extraction complete. is_complete=True, spring_type=compression, questions=1
+2026-07-02 20:58:43,000 | INFO     | app.agents.agent1_requirements | [Agent 1]   Q1: ¿Cuál es la temperatura de operación (en °C)? (opcional — default 20°C)
+2026-07-02 20:58:43,001 | INFO     | app.agents.agent6_orchestrator | [Router] Requirements complete → design_loop.
+2026-07-02 20:58:43,002 | INFO     | app.agents.agent3_materials | [Agent 3] Materials Engineer started.
+2026-07-02 20:58:43,681 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 20:58:44,637 | INFO     | app.agents.agent3_materials | [Agent 3] Selected material: ASTM A228 Music Wire (G=81.5 GPa, Sy=1580 MPa, $3.80/kg)
+2026-07-02 20:58:44,639 | INFO     | app.agents.agent2_design | [Agent 2] Design Engineer started.
+2026-07-02 20:58:44,647 | WARNING  | app.tools.spring_tools | Optimizer did not converge: Positive directional derivative for linesearch
+2026-07-02 20:58:44,647 | INFO     | app.agents.agent2_design | [Agent 2] Geometry computed: d=0.615 mm, D=4.921 mm, n_a=2.5
+2026-07-02 20:58:44,648 | INFO     | app.agents.agent4_compliance | [Agent 4] Normative Inspector started.
+2026-07-02 20:58:44,652 | WARNING  | app.db.chromadb_client | ChromaDB server unreachable (No module named 'chromadb.telemetry.product.posthog'). Falling back to in-memory client.
+2026-07-02 20:58:44,653 | WARNING  | app.agents.agent4_compliance | [Agent 4] ChromaDB query failed (falling back to hardcoded checks): No module named 'chromadb.telemetry.product.posthog'
+2026-07-02 20:58:44,653 | INFO     | app.agents.agent4_compliance | [Agent 4] Compliance result: REJECTED ✗ | Sf_shear=0.223 | Sf_buckling=1.853
+2026-07-02 20:58:44,654 | INFO     | app.agents.agent6_orchestrator | [Router] Design rejected (iteration 1/6) → redesign loop.
+2026-07-02 20:58:44,655 | INFO     | app.agents.agent6_orchestrator | [Orchestrator] Redesign directives for iteration 1:
+  → Increase wire diameter d or reduce mean coil diameter D to lower shear stress.
+2026-07-02 20:58:44,655 | INFO     | app.agents.agent3_materials | [Agent 3] Materials Engineer started.
+2026-07-02 20:58:44,826 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 20:58:45,664 | INFO     | app.agents.agent3_materials | [Agent 3] Selected material: ASTM A228 Music Wire (G=81.5 GPa, Sy=1580 MPa, $3.80/kg)
+2026-07-02 20:58:45,665 | INFO     | app.agents.agent2_design | [Agent 2] Design Engineer started.
+2026-07-02 20:58:45,672 | WARNING  | app.tools.spring_tools | Optimizer did not converge: Positive directional derivative for linesearch
+2026-07-02 20:58:45,673 | INFO     | app.agents.agent2_design | [Agent 2] Geometry computed: d=0.615 mm, D=4.921 mm, n_a=2.5
+2026-07-02 20:58:45,674 | INFO     | app.agents.agent4_compliance | [Agent 4] Normative Inspector started.
+2026-07-02 20:58:45,677 | WARNING  | app.db.chromadb_client | ChromaDB server unreachable (No module named 'chromadb.telemetry.product.posthog'). Falling back to in-memory client.
+2026-07-02 20:58:45,678 | WARNING  | app.agents.agent4_compliance | [Agent 4] ChromaDB query failed (falling back to hardcoded checks): No module named 'chromadb.api.rust'
+2026-07-02 20:58:45,678 | INFO     | app.agents.agent4_compliance | [Agent 4] Compliance result: REJECTED ✗ | Sf_shear=0.223 | Sf_buckling=1.853
+2026-07-02 20:58:45,678 | INFO     | app.agents.agent6_orchestrator | [Router] Design rejected (iteration 2/6) → redesign loop.
+2026-07-02 20:58:45,679 | INFO     | app.agents.agent6_orchestrator | [Orchestrator] Redesign directives for iteration 2:
+  → Increase wire diameter d or reduce mean coil diameter D to lower shear stress.
+2026-07-02 20:58:45,680 | INFO     | app.agents.agent3_materials | [Agent 3] Materials Engineer started.
+2026-07-02 20:58:45,843 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:60005 - "GET /api/v1/design/a4dd6ec6-ea66-4dc5-9729-49fbb17370df/status HTTP/1.1" 200 OK
+2026-07-02 20:58:46,795 | INFO     | app.agents.agent3_materials | [Agent 3] Selected material: ASTM A228 Music Wire (G=81.5 GPa, Sy=1580 MPa, $3.80/kg)
+2026-07-02 20:58:46,796 | INFO     | app.agents.agent2_design | [Agent 2] Design Engineer started.
+2026-07-02 20:58:46,803 | WARNING  | app.tools.spring_tools | Optimizer did not converge: Positive directional derivative for linesearch
+2026-07-02 20:58:46,804 | INFO     | app.agents.agent2_design | [Agent 2] Geometry computed: d=0.615 mm, D=4.921 mm, n_a=2.5
+2026-07-02 20:58:46,805 | INFO     | app.agents.agent4_compliance | [Agent 4] Normative Inspector started.
+2026-07-02 20:58:46,808 | WARNING  | app.db.chromadb_client | ChromaDB server unreachable (No module named 'chromadb.telemetry.product.posthog'). Falling back to in-memory client.
+2026-07-02 20:58:46,809 | WARNING  | app.agents.agent4_compliance | [Agent 4] ChromaDB query failed (falling back to hardcoded checks): No module named 'chromadb.telemetry.product.posthog'
+2026-07-02 20:58:46,809 | INFO     | app.agents.agent4_compliance | [Agent 4] Compliance result: REJECTED ✗ | Sf_shear=0.223 | Sf_buckling=1.853
+2026-07-02 20:58:46,810 | INFO     | app.agents.agent6_orchestrator | [Router] Design rejected (iteration 3/6) → redesign loop.
+2026-07-02 20:58:46,811 | INFO     | app.agents.agent6_orchestrator | [Orchestrator] Redesign directives for iteration 3:
+  → Increase wire diameter d or reduce mean coil diameter D to lower shear stress.
+2026-07-02 20:58:46,811 | INFO     | app.agents.agent3_materials | [Agent 3] Materials Engineer started.
+2026-07-02 20:58:46,988 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 20:58:47,802 | INFO     | app.agents.agent3_materials | [Agent 3] Selected material: ASTM A228 Music Wire (G=81.5 GPa, Sy=1580 MPa, $3.80/kg)
+2026-07-02 20:58:47,803 | INFO     | app.agents.agent2_design | [Agent 2] Design Engineer started.
+2026-07-02 20:58:47,810 | WARNING  | app.tools.spring_tools | Optimizer did not converge: Positive directional derivative for linesearch
+2026-07-02 20:58:47,811 | INFO     | app.agents.agent2_design | [Agent 2] Geometry computed: d=0.615 mm, D=4.921 mm, n_a=2.5
+2026-07-02 20:58:47,812 | INFO     | app.agents.agent4_compliance | [Agent 4] Normative Inspector started.
+2026-07-02 20:58:47,815 | WARNING  | app.db.chromadb_client | ChromaDB server unreachable (No module named 'chromadb.telemetry.product.posthog'). Falling back to in-memory client.
+2026-07-02 20:58:47,816 | WARNING  | app.agents.agent4_compliance | [Agent 4] ChromaDB query failed (falling back to hardcoded checks): No module named 'chromadb.api.rust'
+2026-07-02 20:58:47,816 | INFO     | app.agents.agent4_compliance | [Agent 4] Compliance result: REJECTED ✗ | Sf_shear=0.223 | Sf_buckling=1.853
+2026-07-02 20:58:47,817 | INFO     | app.agents.agent6_orchestrator | [Router] Design rejected (iteration 4/6) → redesign loop.
+2026-07-02 20:58:47,817 | INFO     | app.agents.agent6_orchestrator | [Orchestrator] Redesign directives for iteration 4:
+  → Increase wire diameter d or reduce mean coil diameter D to lower shear stress.
+2026-07-02 20:58:47,818 | INFO     | app.agents.agent3_materials | [Agent 3] Materials Engineer started.
+2026-07-02 20:58:47,980 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 20:58:48,821 | INFO     | app.agents.agent3_materials | [Agent 3] Selected material: ASTM A228 Music Wire (G=81.5 GPa, Sy=1580 MPa, $3.80/kg)
+2026-07-02 20:58:48,823 | INFO     | app.agents.agent2_design | [Agent 2] Design Engineer started.
+2026-07-02 20:58:48,830 | WARNING  | app.tools.spring_tools | Optimizer did not converge: Positive directional derivative for linesearch
+2026-07-02 20:58:48,831 | INFO     | app.agents.agent2_design | [Agent 2] Geometry computed: d=0.615 mm, D=4.921 mm, n_a=2.5
+2026-07-02 20:58:48,831 | INFO     | app.agents.agent4_compliance | [Agent 4] Normative Inspector started.
+2026-07-02 20:58:48,835 | WARNING  | app.db.chromadb_client | ChromaDB server unreachable (No module named 'chromadb.telemetry.product.posthog'). Falling back to in-memory client.
+2026-07-02 20:58:48,835 | WARNING  | app.agents.agent4_compliance | [Agent 4] ChromaDB query failed (falling back to hardcoded checks): No module named 'chromadb.telemetry.product.posthog'
+2026-07-02 20:58:48,836 | INFO     | app.agents.agent4_compliance | [Agent 4] Compliance result: REJECTED ✗ | Sf_shear=0.223 | Sf_buckling=1.853
+2026-07-02 20:58:48,836 | INFO     | app.agents.agent6_orchestrator | [Router] Design rejected (iteration 5/6) → redesign loop.
+2026-07-02 20:58:48,837 | INFO     | app.agents.agent6_orchestrator | [Orchestrator] Redesign directives for iteration 5:
+  → Increase wire diameter d or reduce mean coil diameter D to lower shear stress.
+2026-07-02 20:58:48,838 | INFO     | app.agents.agent3_materials | [Agent 3] Materials Engineer started.
+2026-07-02 20:58:49,003 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 20:58:49,814 | INFO     | app.agents.agent3_materials | [Agent 3] Selected material: ASTM A228 Music Wire (G=81.5 GPa, Sy=1580 MPa, $3.80/kg)
+2026-07-02 20:58:49,815 | INFO     | app.agents.agent2_design | [Agent 2] Design Engineer started.
+2026-07-02 20:58:49,822 | WARNING  | app.tools.spring_tools | Optimizer did not converge: Positive directional derivative for linesearch
+2026-07-02 20:58:49,823 | INFO     | app.agents.agent2_design | [Agent 2] Geometry computed: d=0.615 mm, D=4.921 mm, n_a=2.5
+2026-07-02 20:58:49,824 | INFO     | app.agents.agent4_compliance | [Agent 4] Normative Inspector started.
+2026-07-02 20:58:49,826 | WARNING  | app.db.chromadb_client | ChromaDB server unreachable (No module named 'chromadb.telemetry.product.posthog'). Falling back to in-memory client.
+2026-07-02 20:58:49,827 | WARNING  | app.agents.agent4_compliance | [Agent 4] ChromaDB query failed (falling back to hardcoded checks): No module named 'chromadb.api.rust'
+2026-07-02 20:58:49,827 | INFO     | app.agents.agent4_compliance | [Agent 4] Compliance result: REJECTED ✗ | Sf_shear=0.223 | Sf_buckling=1.853
+2026-07-02 20:58:49,828 | INFO     | app.agents.agent6_orchestrator | [Router] Design rejected (iteration 6/6) → redesign loop.
+2026-07-02 20:58:49,834 | INFO     | app.agents.agent6_orchestrator | [Orchestrator] Redesign directives for iteration 6:
+  → Increase wire diameter d or reduce mean coil diameter D to lower shear stress.
+2026-07-02 20:58:49,834 | INFO     | app.agents.agent3_materials | [Agent 3] Materials Engineer started.
+2026-07-02 20:58:50,001 | INFO     | httpx | HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+2026-07-02 20:58:50,829 | INFO     | app.agents.agent3_materials | [Agent 3] Selected material: ASTM A228 Music Wire (G=81.5 GPa, Sy=1580 MPa, $3.80/kg)
+2026-07-02 20:58:50,831 | INFO     | app.agents.agent2_design | [Agent 2] Design Engineer started.
+2026-07-02 20:58:50,838 | WARNING  | app.tools.spring_tools | Optimizer did not converge: Positive directional derivative for linesearch
+2026-07-02 20:58:50,839 | INFO     | app.agents.agent2_design | [Agent 2] Geometry computed: d=0.615 mm, D=4.921 mm, n_a=2.5
+2026-07-02 20:58:50,840 | INFO     | app.agents.agent4_compliance | [Agent 4] Normative Inspector started.
+2026-07-02 20:58:50,843 | WARNING  | app.db.chromadb_client | ChromaDB server unreachable (No module named 'chromadb.telemetry.product.posthog'). Falling back to in-memory client.
+2026-07-02 20:58:50,843 | WARNING  | app.agents.agent4_compliance | [Agent 4] ChromaDB query failed (falling back to hardcoded checks): No module named 'chromadb.telemetry.product.posthog'
+2026-07-02 20:58:50,844 | INFO     | app.agents.agent4_compliance | [Agent 4] Compliance result: REJECTED ✗ | Sf_shear=0.223 | Sf_buckling=1.853
+2026-07-02 20:58:50,844 | WARNING  | app.agents.agent6_orchestrator | [Router] Max iterations (6) reached. Cannot satisfy constraints.
+2026-07-02 20:58:50,845 | ERROR    | app.agents.agent6_orchestrator | [Orchestrator] Iteration limit reached. Surfacing last state.
+2026-07-02 20:58:51,001 | INFO     | app.services.design_service | [DesignService] Graph completed for a4dd6ec6-ea66-4dc5-9729-49fbb17370df. Status: iteration_limit_reached
+INFO:     127.0.0.1:60040 - "GET /api/v1/design/a4dd6ec6-ea66-4dc5-9729-49fbb17370df/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60046 - "GET /api/v1/design/a4dd6ec6-ea66-4dc5-9729-49fbb17370df HTTP/1.1" 200 OK

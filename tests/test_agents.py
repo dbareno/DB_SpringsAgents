@@ -423,8 +423,9 @@ class TestAgent2Design:
 
 
 class TestAgent3Materials:
-    """Tests para agent3_materials.materials_engineer_node."""
+    """Tests para agent3_materials.materials_engineer_node (v2)."""
 
+    # Candidates now include score/bonus fields produced by _score_candidates
     SINGLE_CANDIDATE = [
         {
             "material_id": 1,
@@ -437,6 +438,10 @@ class TestAgent3Materials:
             "max_temp_c": 120.0,
             "corrosion_resistant": False,
             "cost_usd_per_kg": 3.80,
+            "score": 415.8,
+            "temp_bonus": 4.8,
+            "fatigue_bonus": 1.0,
+            "preference_bonus": 1.0,
         },
     ]
 
@@ -452,6 +457,10 @@ class TestAgent3Materials:
             "max_temp_c": 120.0,
             "corrosion_resistant": False,
             "cost_usd_per_kg": 3.80,
+            "score": 415.8,
+            "temp_bonus": 4.8,
+            "fatigue_bonus": 1.0,
+            "preference_bonus": 1.0,
         },
         {
             "material_id": 3,
@@ -464,6 +473,10 @@ class TestAgent3Materials:
             "max_temp_c": 260.0,
             "corrosion_resistant": True,
             "cost_usd_per_kg": 9.50,
+            "score": 115.8,
+            "temp_bonus": 10.4,
+            "fatigue_bonus": 1.0,
+            "preference_bonus": 1.0,
         },
     ]
 
@@ -483,9 +496,22 @@ class TestAgent3Materials:
         self._mock_tool = patcher.start()
         request.addfinalizer(patcher.stop)
 
-    def _make_requirements(self) -> UserRequirements:
+    def _setup_llm(self, material_id: int = 1) -> None:
+        """Configure LLM mock to return a dummy selection."""
+        llm_response = json.dumps({
+            "selected_material_id": material_id,
+            "justification": "Best strength-to-cost ratio for this application.",
+            "runner_up_name": None,
+            "runner_up_reason": None,
+            "candidate_summary": "2 candidates evaluated.",
+        })
+        llm = _make_llm_mock(llm_response)
+        factory = _make_factory_mock(llm)
+        self._mock_get_factory.return_value = factory
+
+    def _make_requirements(self, raw_input: str = "Design a compression spring") -> UserRequirements:
         return UserRequirements(
-            raw_input="Design a compression spring",
+            raw_input=raw_input,
             spring_type="compression",
             load_force_n=100.0,
             deflection_mm=20.0,
@@ -494,65 +520,92 @@ class TestAgent3Materials:
             cyclic_load=False,
         )
 
-    def test_single_candidate_skips_llm(self) -> None:
+    def _state_with_requirements(
+        self,
+        raw_input: str = "Design a compression spring",
+        **overrides: object,
+    ) -> AgentState:
+        req = self._make_requirements(raw_input=raw_input)
+        return _make_agent_state(requirements=req, _raw_input=raw_input, **overrides)
+
+    # ── Tests ────────────────────────────────────────────────────────────
+
+    def test_single_candidate_selects_with_llm(self) -> None:
         """
-        Verifica que cuando solo hay un candidato, el agente lo selecciona
-        sin invocar el LLM.
+        Verifica que incluso con un solo candidato, el agente usa el LLM
+        para generar justificacion (no hay fast-path).
         """
         self._mock_tool.invoke.return_value = json.dumps({
             "status": "ok",
             "candidates": self.SINGLE_CANDIDATE,
         })
+        self._setup_llm(material_id=1)
 
         from app.agents.agent3_materials import materials_engineer_node
 
-        state = _make_agent_state(requirements=self._make_requirements())
+        state = self._state_with_requirements()
         result = materials_engineer_node(state)
 
-        # No debe llamar al LLM
-        self._mock_get_factory.assert_not_called()
+        # Debe llamar al LLM incluso con un solo candidato
+        self._mock_get_factory.assert_called()
 
         assert "material" in result
         mat: MaterialProperties = result["material"]
         assert isinstance(mat, MaterialProperties)
         assert mat.name == "ASTM A228 Music Wire"
-        assert mat.material_id == 1
 
-    def test_multiple_candidates_uses_llm(self) -> None:
+    def test_multiple_candidates_selects_best(self) -> None:
         """
-        Verifica que con multiples candidatos, el agente invoca el LLM
-        para seleccionar el mejor material.
+        Verifica que con multiples candidatos el agente invoca el LLM
+        y selecciona el material correcto.
         """
         self._mock_tool.invoke.return_value = json.dumps({
             "status": "ok",
             "candidates": self.MULTIPLE_CANDIDATES,
         })
-
-        llm_response = json.dumps({
-            "selected_material_id": 3,
-            "justification": "Stainless steel offers corrosion resistance.",
-        })
-        llm = _make_llm_mock(llm_response)
-        factory = _make_factory_mock(llm)
-        self._mock_get_factory.return_value = factory
+        self._setup_llm(material_id=3)
 
         from app.agents.agent3_materials import materials_engineer_node
 
-        state = _make_agent_state(requirements=self._make_requirements())
+        state = self._state_with_requirements()
         result = materials_engineer_node(state)
 
-        # Debe haber llamado al LLM
         self._mock_get_factory.assert_called()
-
         assert "material" in result
         mat: MaterialProperties = result["material"]
         assert mat.material_id == 3
         assert mat.name == "ASTM A313 Type 302 Stainless Steel"
 
+    def test_preferred_material_passed_to_tool(self) -> None:
+        """
+        Verifica que si el raw_input menciona un material ('stainless'),
+        el agente lo pasa como preferred_material_name al tool.
+        """
+        self._mock_tool.invoke.return_value = json.dumps({
+            "status": "ok",
+            "candidates": self.MULTIPLE_CANDIDATES,
+        })
+        self._setup_llm(material_id=3)
+
+        from app.agents.agent3_materials import materials_engineer_node
+
+        state = self._state_with_requirements(
+            raw_input="I need a stainless steel spring for a valve",
+        )
+        result = materials_engineer_node(state)
+
+        # Verificar que preferred_material_name se paso al tool
+        self._mock_tool.invoke.assert_called_once()
+        tool_kwargs = self._mock_tool.invoke.call_args[0][0]
+        assert "preferred_material_name" in tool_kwargs
+        assert tool_kwargs["preferred_material_name"] == "stainless steel"
+
+        assert "material" in result
+
     def test_no_matching_material_returns_error(self) -> None:
         """
         Verifica que cuando la herramienta retorna no_match, el agente
-        retorna un error.
+        retorna un error (con mensaje explicativo opcional).
         """
         self._mock_tool.invoke.return_value = json.dumps({
             "status": "no_match",
@@ -561,7 +614,7 @@ class TestAgent3Materials:
 
         from app.agents.agent3_materials import materials_engineer_node
 
-        state = _make_agent_state(requirements=self._make_requirements())
+        state = self._state_with_requirements()
         result = materials_engineer_node(state)
 
         assert "material" not in result
@@ -580,7 +633,7 @@ class TestAgent3Materials:
 
         from app.agents.agent3_materials import materials_engineer_node
 
-        state = _make_agent_state(requirements=self._make_requirements())
+        state = self._state_with_requirements()
         result = materials_engineer_node(state)
 
         assert "material" not in result
@@ -608,11 +661,38 @@ class TestAgent3Materials:
 
         from app.agents.agent3_materials import materials_engineer_node
 
-        state = _make_agent_state(requirements=self._make_requirements())
+        state = self._state_with_requirements()
         result = materials_engineer_node(state)
 
         assert "material" not in result
         assert result["errors"][0]["error_type"] == "RuntimeError"
+
+    # ── Unit tests for helpers ───────────────────────────────────────────
+
+    def test_extract_user_material_preference_stainless(self) -> None:
+        """Reconoce 'stainless' en el input."""
+        from app.agents.agent3_materials import _extract_user_material_preference
+        name, goal = _extract_user_material_preference(
+            "I need a stainless steel spring"
+        )
+        assert name == "stainless steel"
+
+    def test_extract_user_material_preference_cheap(self) -> None:
+        """Reconoce metas como 'cheap'."""
+        from app.agents.agent3_materials import _extract_user_material_preference
+        name, goal = _extract_user_material_preference(
+            "I need a cheap spring"
+        )
+        assert name is None  # cheap no es un material
+        assert "cost" in goal.lower() or "low" in goal.lower()
+
+    def test_extract_user_material_preference_bronze(self) -> None:
+        """Reconoce 'bronze' como phosphor bronze."""
+        from app.agents.agent3_materials import _extract_user_material_preference
+        name, goal = _extract_user_material_preference(
+            "bronze spring for marine use"
+        )
+        assert name == "phosphor bronze"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
