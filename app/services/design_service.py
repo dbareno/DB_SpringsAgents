@@ -54,6 +54,44 @@ def _compute_progress_pct(current_step: str | None) -> int:
     return _STEP_PROGRESS_MAP.get(current_step, 0)
 
 
+# ── Mapeo de preguntas de clarificación a etiquetas explícitas ───────────
+# Cada patrón de pregunta se asocia a un label que el LLM entiende mejor
+# que el formato Q&A genérico.
+
+_CLARIFICATION_LABELS: dict[str, str] = {
+    "carga": "Load force",
+    "newton": "Load force",
+    "fuerza": "Load force",
+    "deflexión": "Deflection",
+    "deflection": "Deflection",
+    "mm": "Deflection",
+    "tipo de resorte": "Spring type",
+    "spring type": "Spring type",
+    "compression": "Spring type",
+    "tracción": "Spring type",
+    "torsión": "Spring type",
+}
+
+
+def _map_answers_to_labels(questions: list[str], answers: list[str]) -> list[str]:
+    """
+    Convierte preguntas y respuestas en etiquetas explícitas.
+
+    "¿Qué fuerza de carga...?" + "500N" → "Load force: 500 N"
+    "¿Cuánta deflexión...?" + "10mm"   → "Deflection: 10 mm"
+    """
+    result: list[str] = []
+    for i, answer in enumerate(answers):
+        question = questions[i].lower() if i < len(questions) else ""
+        label = "Specification"
+        for keyword, mapped_label in _CLARIFICATION_LABELS.items():
+            if keyword in question:
+                label = mapped_label
+                break
+        result.append(f"{label}: {answer}")
+    return result
+
+
 class DesignService:
     """
     Servicio que orquesta el ciclo de vida completo de un diseño de resorte.
@@ -132,17 +170,15 @@ class DesignService:
         final_report = project.final_report or {}
         prev_questions: list[str] = final_report.get("clarification_questions", [])
 
-        # Construir bloque Q&A estructurado
-        qa_lines: list[str] = []
-        for i, answer in enumerate(answers):
-            question = (
-                prev_questions[i]
-                if i < len(prev_questions)
-                else f"Question {i+1}"
-            )
-            qa_lines.append(f"Q: {question}\nA: {answer}")
-        qa_block = "\n\n".join(qa_lines)
-        combined_input = f"{project.raw_user_input}\n\nAdditional details:\n{qa_block}"
+        # Construir input combinado con etiquetas explícitas para que el LLM
+        # pueda extraer los valores sin depender del formato Q&A
+        labels = _map_answers_to_labels(prev_questions, answers)
+        details = "\n".join(f"  - {label}" for label in labels)
+        combined_input = (
+            f"{project.raw_user_input}\n\n"
+            f"--- Especificaciones adicionales proporcionadas ---\n"
+            f"{details}\n"
+        )
 
         # Inicializar cache de progreso
         _status_cache[session_id] = {

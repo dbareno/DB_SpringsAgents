@@ -32,9 +32,18 @@ from app.schemas.state import AgentState, SpringType, UserRequirements
 
 logger = logging.getLogger(__name__)
 
-_SYSTEM_PROMPT = """Extract spring design parameters from the user's text.
-Return ONLY valid JSON — no markdown fences, no extra text.
+_SYSTEM_PROMPT = """You are a requirements analyst for spring design.
+Extract ALL spring design parameters from the text below.
 
+The text may contain:
+- An original user request in natural language
+- Additional specifications listed as "Label: value" (e.g. "Load force: 500 N")
+
+You MUST combine ALL information sources and extract every parameter you can find.
+If both the original request and the additional specs mention the same parameter,
+use the most specific value.
+
+Return ONLY valid JSON — no markdown fences, no extra text.
 Put null for values not mentioned. Infer spring_type from context
 (compression/extension/torsion/spiral/wave). Default to compression if unclear.
 Set corrosion_resistant and cyclic_load to false unless the user says otherwise.
