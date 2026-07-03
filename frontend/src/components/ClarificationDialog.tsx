@@ -29,15 +29,15 @@ export default function ClarificationDialog({
     });
   };
 
+  const hasAnyAnswer = answers.some((a) => a.trim().length > 0);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    // Filtrar respuestas vacías
-    const nonEmpty = answers.map((a) => a.trim()).filter((a) => a.length > 0);
-    if (nonEmpty.length === 0 || isLoading) return;
-    await onSubmit(nonEmpty);
+    if (isLoading || !hasAnyAnswer) return;
+    // Enviar TODAS las respuestas (incluyendo vacías) para preservar
+    // el índice de cada pregunta en el backend.
+    await onSubmit(answers);
   };
-
-  const allFilled = answers.every((a) => a.trim().length > 0);
 
   if (!questions || questions.length === 0) return null;
 
@@ -64,10 +64,15 @@ export default function ClarificationDialog({
               key={i}
               className="rounded-lg border border-zinc-700/50 bg-zinc-900/50 p-3"
             >
-              <label className="block text-sm font-medium text-zinc-300 mb-1.5">
-                <span className="text-amber-400 mr-1">{i + 1}.</span>
-                {question}
-              </label>
+                <label className="block text-sm font-medium text-zinc-300 mb-1.5">
+                  <span className="text-amber-400 mr-1">{i + 1}.</span>
+                  {question}
+                  {question.includes('(opcional)') && (
+                    <span className="ml-2 rounded bg-zinc-700/60 px-1.5 py-0.5 text-[11px] font-normal text-zinc-400">
+                      opcional
+                    </span>
+                  )}
+                </label>
               <textarea
                 value={answers[i]}
                 onChange={(e) => handleAnswerChange(i, e.target.value)}
@@ -84,11 +89,16 @@ export default function ClarificationDialog({
           <span className="text-xs text-zinc-500">
             {answers.filter((a) => a.trim().length > 0).length} de{' '}
             {questions.length} respondidas
+            {!hasAnyAnswer && (
+              <span className="ml-2 text-amber-400">
+                — completa al menos un campo obligatorio
+              </span>
+            )}
           </span>
           <Button
             type="submit"
             isLoading={isLoading}
-            disabled={!allFilled}
+            disabled={!hasAnyAnswer}
           >
             <Send className="h-4 w-4" />
             Enviar respuestas

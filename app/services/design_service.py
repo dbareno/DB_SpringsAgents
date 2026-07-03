@@ -58,40 +58,46 @@ def _compute_progress_pct(current_step: str | None) -> int:
 # Cada patrón de pregunta se asocia a un label que el LLM entiende mejor
 # que el formato Q&A genérico.
 
-_CLARIFICATION_LABELS: dict[str, str] = {
-    # Carga
-    "carga": "Load force",
-    "newton": "Load force",
-    "fuerza": "Load force",
-    # Deflexión
-    "deflexión": "Deflection",
-    "deflection": "Deflection",
-    # Tipo
-    "tipo de resorte": "Spring type",
-    "spring type": "Spring type",
-    "compresión": "Spring type",
-    "tracción": "Spring type",
-    "torsión": "Spring type",
+_CLARIFICATION_LABELS: list[tuple[str, str]] = [
+    # IMPORTANTE: keywords más específicas PRIMERO para evitar falsos positivos.
+    # "carga" aparece en "carga cíclica" y "fuerza de carga" — va al final.
+
+    # Carga cíclica (antes de "carga" para evitar falso positivo)
+    ("cíclica", "Cyclic load"),
+    ("fatiga", "Cyclic load"),
+    ("estática", "Cyclic load"),
+    ("repetitivo", "Cyclic load"),
+    # Ciclos de vida
+    ("ciclos de vida", "Cycles expected"),
+    ("ciclos esperados", "Cycles expected"),
+    # Tipo de resorte (compresión/tracción/torsión antes de "carga")
+    ("compresión", "Spring type"),
+    ("tracción", "Spring type"),
+    ("torsión", "Spring type"),
+    ("tipo de resorte", "Spring type"),
+    ("spring type", "Spring type"),
     # Diámetro exterior
-    "diámetro exterior": "Max outer diameter",
-    "outer diameter": "Max outer diameter",
+    ("diámetro exterior", "Max outer diameter"),
+    ("outer diameter", "Max outer diameter"),
     # Longitud libre
-    "longitud libre": "Max free length",
-    "free length": "Max free length",
+    ("longitud libre", "Max free length"),
+    ("free length", "Max free length"),
     # Temperatura
-    "temperatura": "Operating temperature",
-    "temperature": "Operating temperature",
-    # Corrosión
-    "corrosivo": "Corrosion resistant",
-    "corrosión": "Corrosion resistant",
-    # Carga cíclica
-    "cíclica": "Cyclic load",
-    "fatiga": "Cyclic load",
-    "estática": "Cyclic load",
-    # Ciclos
-    "ciclos": "Cycles expected",
-    "cycles": "Cycles expected",
-}
+    ("temperatura", "Operating temperature"),
+    ("temperature", "Operating temperature"),
+    ("operating temp", "Operating temperature"),
+    # Ambiente corrosivo
+    ("corrosivo", "Corrosion resistant"),
+    ("corrosión", "Corrosion resistant"),
+    # Deflexión (antes de "carga")
+    ("deflexión", "Deflection"),
+    ("deflection", "Deflection"),
+    # Carga/fuerza (al final porque "carga" es muy general)
+    ("newton", "Load force"),
+    ("newtons", "Load force"),
+    ("fuerza", "Load force"),
+    ("carga", "Load force"),
+]
 
 
 def _map_answers_to_labels(questions: list[str], answers: list[str]) -> list[str]:
@@ -105,7 +111,7 @@ def _map_answers_to_labels(questions: list[str], answers: list[str]) -> list[str
     for i, answer in enumerate(answers):
         question = questions[i].lower() if i < len(questions) else ""
         label = "Specification"
-        for keyword, mapped_label in _CLARIFICATION_LABELS.items():
+        for keyword, mapped_label in _CLARIFICATION_LABELS:
             if keyword in question:
                 label = mapped_label
                 break

@@ -383,8 +383,8 @@ def _determine_completeness(data: dict, raw_input: str = "") -> tuple[bool, list
     h_od = data.get("max_outer_diameter_mm") is not None
     h_fl = data.get("max_free_length_mm") is not None
     h_temp = data.get("operating_temperature_c") is not None
-    h_corrosion = data.get("corrosion_resistant") is True
-    h_cyclic = data.get("cyclic_load")
+    h_corrosion_specified = data.get("corrosion_resistant") is not None  # True si el usuario dijo sí O no
+    h_cyclic = data.get("cyclic_load")  # True/False/None
     h_cycles = data.get("cycles_expected") is not None
 
     # ── 4. Generar preguntas solo para lo que NO se puede derivar ────
@@ -403,7 +403,7 @@ def _determine_completeness(data: dict, raw_input: str = "") -> tuple[bool, list
         if not h_deflection and not h_rate:
             questions.append("¿Cuánta deflexión (en mm) necesita el resorte?")
         if not h_rate and not h_load and not h_deflection:
-            questions.append("¿Cuál es la tasa elástica (N/mm) del resorte? (opcional, si tiene carga y deflexión se calcula automáticamente)")
+            questions.append("¿Cuál es la tasa elástica (N/mm) del resorte? (si tiene carga y deflexión se calcula automáticamente)")
 
     # Informar lo que se derivó
     if h_rate and known_mech >= 2:
@@ -421,15 +421,17 @@ def _determine_completeness(data: dict, raw_input: str = "") -> tuple[bool, list
         questions.append("¿Cuál es la longitud libre máxima disponible (en mm) para el resorte?")
 
     if not h_temp:
-        questions.append("¿Cuál es la temperatura de operación (en °C)? (opcional, se asume 20°C si no se especifica)")
+        questions.append("¿Cuál es la temperatura de operación (en °C)? (opcional — default 20°C)")
 
-    if not h_corrosion:
-        questions.append("¿El resorte estará expuesto a un ambiente corrosivo?")
+    # Corrosión: preguntar solo si el usuario NO respondió sí ni no
+    if not h_corrosion_specified:
+        questions.append("¿El resorte estará expuesto a un ambiente corrosivo? (opcional)")
 
-    if h_cyclic is None or h_cyclic is False:
-        questions.append("¿La carga es cíclica (fatiga) o estática?")
-    elif h_cyclic and not h_cycles:
-        questions.append("¿Cuántos ciclos de vida espera?")
+    # Carga cíclica: preguntar solo si el usuario NO dijo si es cíclica o estática
+    if h_cyclic is None:
+        questions.append("¿La carga es cíclica (fatiga) o estática? (opcional)")
+    elif h_cyclic is True and not h_cycles:
+        questions.append("¿Cuántos ciclos de vida espera? (opcional)")
 
     # ── 5. Registrar derivaciones en log ──────────────────────────────
     for msg in derived:
