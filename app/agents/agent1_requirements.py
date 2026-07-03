@@ -474,10 +474,17 @@ def requirements_analyst_node(state: AgentState) -> dict:
     # Grab raw input: prefer the dedicated field, fall back to last human msg
     raw_input: str = state.get("_raw_input", "")
     if not raw_input:
+        logger.warning("[Agent 1] _raw_input MISSING from state — falling back to message history.")
         for msg in reversed(state.get("messages", [])):
             if isinstance(msg, HumanMessage):
                 raw_input = str(msg.content)
+                logger.info("[Agent 1] Fallback found HumanMessage (%d chars).", len(raw_input))
                 break
+        else:
+            logger.warning("[Agent 1] No HumanMessage in message history either — raw_input will be empty.")
+
+    logger.info("[Agent 1] raw_input length=%d, starts_with=%s",
+                len(raw_input), repr(raw_input[:80]))
 
     messages = [
         SystemMessage(content=_SYSTEM_PROMPT),

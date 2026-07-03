@@ -186,6 +186,10 @@ class AgentState(dict):
     - LangGraph merges the partial update onto the running state automatically.
     """
 
+    # ── Raw input (preserved across graph steps) ──────────────────────────────
+    _raw_input: str
+    """Original user input text. MUST be annotated so LangGraph keeps it as a channel — otherwise it is silently dropped and regex extraction never runs."""
+
     # ── Conversation / messaging ──────────────────────────────────────────────
     messages: Annotated[list[BaseMessage], add_messages]
     """Full conversation history with the add_messages reducer (append-only)."""
