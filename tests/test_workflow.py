@@ -147,6 +147,7 @@ class TestInitialState:
             "errors",
             "final_report",
             "_raw_input",
+            "redesign_directives",
         }
         assert set(state.keys()) == expected_keys
 

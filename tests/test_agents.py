@@ -75,6 +75,7 @@ def _make_agent_state(**overrides: object) -> AgentState:
         "errors": [],
         "final_report": None,
         "_raw_input": "",
+        "redesign_directives": [],
     })
     state.update(overrides)  # type: ignore[typeddict-item]
     return state
@@ -94,9 +95,9 @@ class TestAgent1Requirements:
         "deflection_mm": 15.0,
         "spring_rate_n_mm": None,
         "max_outer_diameter_mm": 25.0,
-        "max_free_length_mm": None,
+        "max_free_length_mm": 60.0,
         "solid_length_mm": None,
-        "operating_temperature_c": None,
+        "operating_temperature_c": 20.0,
         "corrosion_resistant": False,
         "cyclic_load": False,
         "cycles_expected": None,
@@ -179,8 +180,11 @@ class TestAgent1Requirements:
 
         req: UserRequirements = result["requirements"]
         assert req.is_complete is False
-        assert len(req.clarification_questions) == 2
-        assert "load force" in req.clarification_questions[0].lower()
+        # _determine_completeness generates questions for ALL missing fields
+        # (type, force, deflection, rate, OD, free length, temp)
+        assert len(req.clarification_questions) == 7
+        assert "tipo de resorte" in req.clarification_questions[0].lower()
+        assert "fuerza" in req.clarification_questions[1].lower()
 
     def test_invalid_json_returns_error(self) -> None:
         """
