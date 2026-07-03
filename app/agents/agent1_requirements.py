@@ -372,10 +372,28 @@ def _determine_completeness(data: dict, raw_input: str = "") -> tuple[bool, list
         cycles = _extract_cycles(raw_input)
         data["cycles_expected"] = cycles if cycles is not None else data.pop("cycles_expected", None)
 
-    # ── 2. Derivar valores calculables ────────────────────────────────
+    # ── 2. DEBUG: mostrar qué extrajo el regex ────────────────────────
+    if raw_input:
+        lines = raw_input.strip().split("\n")
+        preview = "\n".join(lines[-10:])  # últimas 10 líneas (las etiquetas)
+        logger.info("[Agent 1] === RAW INPUT (last 10 lines) ===\n%s", preview)
+        logger.info(
+            "[Agent 1] Regex extracted — F=%s, δ=%s, k=%s, OD=%s, FL=%s, T=%s, corr=%s, cyclic=%s, cycles=%s",
+            data.get("load_force_n"),
+            data.get("deflection_mm"),
+            data.get("spring_rate_n_mm"),
+            data.get("max_outer_diameter_mm"),
+            data.get("max_free_length_mm"),
+            data.get("operating_temperature_c"),
+            data.get("corrosion_resistant"),
+            data.get("cyclic_load"),
+            data.get("cycles_expected"),
+        )
+
+    # ── 3. Derivar valores calculables ────────────────────────────────
     _derive_values(data)
 
-    # ── 3. Estado actual de cada campo ────────────────────────────────
+    # ── 4. Estado actual de cada campo ────────────────────────────────
     h_type = data.get("spring_type", "unknown") not in ("unknown", None)
     h_load = data.get("load_force_n") is not None
     h_rate = data.get("spring_rate_n_mm") is not None
@@ -387,7 +405,7 @@ def _determine_completeness(data: dict, raw_input: str = "") -> tuple[bool, list
     h_cyclic = data.get("cyclic_load")  # True/False/None
     h_cycles = data.get("cycles_expected") is not None
 
-    # ── 4. Generar preguntas solo para lo que NO se puede derivar ────
+    # ── 5. Generar preguntas solo para lo que NO se puede derivar ────
     questions: list[str] = []
     derived: list[str] = []  # para informar lo que se calculó
 
@@ -437,7 +455,7 @@ def _determine_completeness(data: dict, raw_input: str = "") -> tuple[bool, list
     for msg in derived:
         logger.info("[Agent 1] %s", msg)
 
-    # ── 6. Decisión de completitud ────────────────────────────────────
+    # ── 7. Decisión de completitud ────────────────────────────────────
     # Mínimo para diseñar: (carga o tasa) Y (deflexión o tasa) Y tipo conocido
     # El resto (OD, free length, temp, corrosión, ciclos) se puede asumir
     # con valores por defecto si el usuario no los especifica.
@@ -493,6 +511,9 @@ def requirements_analyst_node(state: AgentState) -> dict:
                 requirements.spring_type,
                 len(requirements.clarification_questions),
             )
+            if requirements.clarification_questions:
+                for qi, q in enumerate(requirements.clarification_questions, 1):
+                    logger.info("[Agent 1]   Q%d: %s", qi, q)
 
             return {
                 "requirements": requirements,
