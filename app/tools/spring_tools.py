@@ -162,8 +162,27 @@ def calculate_spring_geometry_tool(
                     mfl - ((x[2] + 4.0) * x[0] + dfl),
             })
 
-        # Initial guess: mid-range values
-        x0 = np.array([2.0, 20.0, 8.0])
+        # ── Analytical initial guess (includes Wahl factor Ks) ─────────────
+        # The old fallback formula d = (8F/(π·allowable))^(1/3) ignored the
+        # Wahl correction Ks, producing d that was always too small → Sf ≈ 0.22.
+        #
+        # Corrected approach:  τ = Ks·8·F·D/(π·d³) ;  with D = C·d:
+        #     τ = Ks·8·F·C/(π·d²)  →  d = sqrt(Ks·8·F·C / (π·allowable))
+        #
+        # We target C = 8 (mid-range spring index), compute Ks(C=8) ≈ 1.184.
+        _C_guess = 8.0
+        _Ks_guess = (4 * _C_guess - 1) / (4 * _C_guess - 4) + 0.615 / _C_guess
+        d0 = math.sqrt(
+            _Ks_guess * 8.0 * load_force_n * _C_guess
+            / (math.pi * ALLOWABLE_SHEAR_MPA)
+        )
+        D0 = _C_guess * d0
+        n0 = G * d0 ** 4 / (8.0 * D0 ** 3 * k_target)
+        x0 = np.array([d0, D0, n0])
+        logger.debug(
+            "[SpringTool] Analytical guess: d=%.3f, D=%.3f, n_a=%.1f (Ks=%.4f)",
+            d0, D0, n0, _Ks_guess,
+        )
 
         result: OptimizeResult = minimize(
             objective,
@@ -175,14 +194,11 @@ def calculate_spring_geometry_tool(
         )
 
         if not result.success:
-            logger.warning("Optimizer did not converge: %s", result.message)
-            # Fallback: analytical estimate
-            d_est = (8 * load_force_n / (math.pi * ALLOWABLE_SHEAR_MPA)) ** (
-                1 / 3
+            logger.warning(
+                "Optimizer did not converge: %s — using analytical estimate.",
+                result.message,
             )
-            D_est = 8.0 * d_est
-            n_est = G * d_est**4 / (8.0 * D_est**3 * k_target)
-            result.x = np.array([d_est, D_est, n_est])
+            result.x = np.array([d0, D0, n0])
 
         d, D, n_a = result.x
         n_t = n_a + dead_coils
