@@ -89,6 +89,7 @@ def commercial_optimiser_node(state: AgentState) -> dict:
 
     # ── Assemble final report ──────────────────────────────────────────────
     final_report = {
+        "status": "approved",
         "summary": {
             "spring_type": requirements.spring_type if requirements else "unknown",
             "material": material.name,

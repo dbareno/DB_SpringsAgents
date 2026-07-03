@@ -53,3 +53,6 @@ chroma_data/
 # Alembic
 alembic/versions/*.py
 !alembic/versions/.gitkeep
+
+_e2e_test.*
+
