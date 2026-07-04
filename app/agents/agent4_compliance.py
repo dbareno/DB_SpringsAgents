@@ -7,14 +7,21 @@ Responsibilities
 ────────────────
 * Run the ``compliance_verification_tool`` against the current geometry +
   material combination.
-* Query ChromaDB for relevant normative clauses to enrich the compliance
-  assessment with documented standard references.
+* Query the offline standards store (sqlite-vec) for relevant normative
+  clauses to enrich the compliance assessment with documented standard
+  references.
 * If APPROVED → advance graph toward Agent 5.
 * If REJECTED → translate the raw failure modes into actionable redesign
   directives and set ``current_step = "redesign_needed"`` so the Orchestrator
   (Agent 6) loops back to Agent 2.
 * Uses the LLM to produce a human-friendly compliance summary paragraph that
   includes a Normative References section citing the actual standards.
+
+Retrieved standards are advisory/explanatory only — they supplement, but
+never replace, the hardcoded pass/fail checks in
+``app/tools/compliance.py``. If retrieval returns nothing (empty store,
+store unavailable), Agent 4 falls back gracefully to the hardcoded-only
+report, exactly as before.
 """
 
 from __future__ import annotations
@@ -26,8 +33,8 @@ from datetime import datetime, timezone
 from langchain_core.messages import AIMessage
 
 from app.core.llm_factory import get_factory, rotate_llm_on_quota_error
-from app.db.chromadb_client import query_standards
 from app.schemas.state import AgentState, ComplianceReport
+from app.standards.retrieval import StandardsChunk, retrieve_standards
 from app.tools.compliance import compliance_verification_tool
 from app.tools.physics import FATIGUE_MIN_LOAD_RATIO
 
@@ -87,13 +94,11 @@ def normative_inspector_node(state: AgentState) -> dict:
         redesign_directives=report_data.get("redesign_directives", []),
     )
 
-    # ── Query ChromaDB for normative clauses ──────────────────────────────
+    # ── Query the offline standards store for normative clauses ───────────
     retrieved_clauses = _retrieve_normative_clauses(spring_type, geometry)
-    compliance.retrieved_standards = [c["document"] for c in retrieved_clauses]
+    compliance.retrieved_standards = [c.chunk_text for c in retrieved_clauses]
     compliance.standards_referenced = list({
-        c["metadata"].get("standard", "unknown")
-        for c in retrieved_clauses
-        if c.get("metadata")
+        c.standard_name for c in retrieved_clauses
     })
 
     # ── Generate LLM narrative summary ────────────────────────────────────
@@ -118,17 +123,19 @@ def normative_inspector_node(state: AgentState) -> dict:
 def _retrieve_normative_clauses(
     spring_type: str,
     geometry: object,
-) -> list[dict]:
+) -> list[StandardsChunk]:
     """
-    Query ChromaDB for normative clauses relevant to the current design.
+    Query the offline standards store for normative clauses relevant to the
+    current design.
 
-    Builds query texts from the spring type, geometry properties, and common
+    Builds a query text from the spring type, geometry properties, and common
     compliance checks (shear stress limits, spring index, slenderness, fatigue).
 
     Returns:
-        List of result dicts from ``query_standards``, or empty list on failure.
+        List of :class:`StandardsChunk`, or an empty list if the store is
+        empty or retrieval fails — ``retrieve_standards`` never raises, so
+        this always degrades gracefully to the hardcoded-only report.
     """
-    # Build a natural-language query that captures the core compliance concerns
     query_parts: list[str] = [
         f"{spring_type} spring design",
         "shear stress limits and safety factors",
@@ -143,28 +150,17 @@ def _retrieve_normative_clauses(
 
     query_text = " ".join(query_parts)
 
-    try:
-        results = query_standards(
-            query_text=query_text,
-            spring_type=spring_type,
-            n_results=5,
-        )
-        logger.info(
-            "[Agent 4] Retrieved %d normative clauses from ChromaDB.",
-            len(results),
-        )
-        return results
-    except Exception as exc:
-        logger.warning(
-            "[Agent 4] ChromaDB query failed (falling back to hardcoded checks): %s",
-            exc,
-        )
-        return []
+    results = retrieve_standards(query_text, top_k=5)
+    logger.info(
+        "[Agent 4] Retrieved %d normative clauses from the standards store.",
+        len(results),
+    )
+    return results
 
 
 def _generate_narrative(
     compliance: ComplianceReport,
-    retrieved_clauses: list[dict],
+    retrieved_clauses: list[StandardsChunk],
 ) -> str:
     """Build a concise human-readable compliance summary."""
     lines = [
@@ -182,19 +178,18 @@ def _generate_narrative(
         lines.append("\n**Redesign directives for next iteration:**")
         lines.extend(f"  → {rd}" for rd in compliance.redesign_directives)
 
-    # ── Normative References (from ChromaDB) ──────────────────────────────
+    # ── Retrieved standards (from the offline sqlite-vec store) ───────────
     if retrieved_clauses:
-        lines.append("\n**Normative References (retrieved from standards corpus):**")
-        seen_sections: set[str] = set()
+        lines.append("\n**Referenced standards (retrieved from standards corpus):**")
         for clause in retrieved_clauses:
-            meta = clause.get("metadata", {}) or {}
-            section_label = f"{meta.get('standard', '?')} §{meta.get('section', '?')}"
-            if section_label not in seen_sections:
-                seen_sections.add(section_label)
-                lines.append(f"  – {section_label}")
+            lines.append(
+                f"  – {clause.standard_name} clause {clause.chunk_index}: "
+                f"{clause.chunk_text[:160]}"
+                + ("…" if len(clause.chunk_text) > 160 else "")
+            )
         lines.append(
-            "\n_These clauses were retrieved from the DIN/BS EN standards corpus "
-            "via ChromaDB and supplement the hardcoded compliance checks._"
+            "\n_These clauses were retrieved from the local standards corpus "
+            "and supplement the hardcoded compliance checks._"
         )
 
     if compliance.standards_referenced:

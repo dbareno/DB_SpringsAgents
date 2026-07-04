@@ -4,8 +4,17 @@ import os
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_data_files
+
 # SPEC is the spec file path, provided by PyInstaller in the exec namespace
 PROJECT_ROOT = Path(SPEC).parent
+
+# sqlite_vec ships its loadable SQLite extension (vec0.dll) as package data,
+# loaded dynamically via sqlite_vec.load() rather than a normal Python
+# import — PyInstaller's static import analysis cannot discover it on its
+# own, so it must be collected explicitly or the frozen .exe will fail to
+# load the extension at runtime (the exact class of bug that broke chromadb).
+_sqlite_vec_datas = collect_data_files("sqlite_vec")
 
 # ── Required DLLs from Anaconda's Library/bin ──────────────────────────
 # _ssl.pyd, _hashlib.pyd, _lzma.pyd, _bz2.pyd, _ctypes.pyd, pyexpat.pyd,
@@ -36,9 +45,15 @@ a = Analysis(
         (str(PROJECT_ROOT / "frontend" / "out"), "frontend/out"),
         # Include the app package
         (str(PROJECT_ROOT / "app"), "app"),
-        # Include scripts package (seed_materials.py runs on every startup,
-        # including inside the frozen .exe — first-launch DB seed)
+        # Include scripts package (seed_materials.py / ingest_standards.py run
+        # on every startup, including inside the frozen .exe — first-launch
+        # DB seed + standards corpus ingestion)
         (str(PROJECT_ROOT / "scripts"), "scripts"),
+        # Bundle the starter standards corpus (Phase 2 / ADR-3) so the .exe
+        # self-ingests a working dataset on first launch.
+        (str(PROJECT_ROOT / "data" / "standards"), "data/standards"),
+        # sqlite_vec's vec0.dll loadable extension (see note above).
+        *_sqlite_vec_datas,
     ],
     hiddenimports=[
         "uvicorn.logging",
@@ -61,7 +76,11 @@ a = Analysis(
         "pydantic",
         "pydantic_settings",
         "aiosqlite",
-        "chromadb",
+        # Standards RAG store (Phase 2 / ADR-3) — replaces chromadb, which
+        # is no longer bundled (its onnxruntime/posthog runtime deps were
+        # the historical freeze failure point).
+        "sqlite_vec",
+        "pypdf",
         "httpx",
         "dotenv",
         "multipart",

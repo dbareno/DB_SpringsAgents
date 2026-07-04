@@ -1,0 +1,19 @@
+ASTM A125 (simplified excerpt) — Standard Specification for Steel Springs,
+Helical, Heat-Treated.
+
+General requirements. Heat-treated helical compression and extension springs
+shall be stress-relieved at a minimum temperature of 200 degrees Celsius for
+not less than 20 minutes after coiling, in order to reduce residual stresses
+introduced during the coiling operation and to stabilize the free length of
+the spring prior to final inspection.
+
+Shot peening. Springs intended for cyclic (fatigue) service should be shot
+peened after stress relief to induce beneficial residual compressive
+stresses at the wire surface, which measurably improves fatigue life
+compared to an equivalent un-peened spring of the same material and
+geometry.
+
+Surface finish. The wire surface shall be free of seams, laps, and other
+defects that could act as fatigue crack initiation sites. Visual and
+dye-penetrant inspection is recommended for springs used in critical
+cyclic-load applications.

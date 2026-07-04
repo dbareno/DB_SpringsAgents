@@ -964,6 +964,114 @@ class TestAgent4Compliance:
         assert "compliance" not in result
         assert result["errors"][0]["error_type"] == "RuntimeError"
 
+    def test_retrieval_hit_populates_retrieved_standards(self) -> None:
+        """
+        Cuando retrieve_standards() encuentra clausulas relevantes, el
+        ComplianceReport debe incluirlas en retrieved_standards /
+        standards_referenced y el mensaje narrativo debe citarlas.
+        """
+        self._mock_tool.invoke.return_value = json.dumps({
+            "status": "ok",
+            "report": {
+                "approved": True,
+                "safety_factor_shear": 2.1,
+                "safety_factor_buckling": 1.8,
+                "safety_factor_fatigue": None,
+                "spring_index": 8.0,
+                "wahl_factor": 1.184,
+                "corrected_shear_stress_mpa": 320.5,
+                "slenderness_ratio": 2.14,
+                "applicable_standard": "DIN 2095 / ASTM A125",
+                "failure_modes": [],
+                "redesign_directives": [],
+            },
+        })
+
+        from app.agents.agent4_compliance import normative_inspector_node
+        from app.standards.retrieval import StandardsChunk
+
+        dummy_chunks = [
+            StandardsChunk(
+                standard_name="DIN 2095",
+                chunk_index=0,
+                chunk_text="The spring index C shall be between 4 and 20.",
+                distance=0.05,
+            ),
+            StandardsChunk(
+                standard_name="ASTM A125",
+                chunk_index=1,
+                chunk_text="Stress-relieve at 200C for 20 minutes after coiling.",
+                distance=0.12,
+            ),
+        ]
+
+        with patch(
+            "app.agents.agent4_compliance.retrieve_standards",
+            return_value=dummy_chunks,
+        ):
+            geometry = self._make_geometry()
+            material = self._make_material()
+            requirements = self._make_requirements()
+            state = _make_agent_state(
+                geometry=geometry,
+                material=material,
+                requirements=requirements,
+            )
+            result = normative_inspector_node(state)
+
+        comp: ComplianceReport = result["compliance"]
+        assert comp.retrieved_standards == [c.chunk_text for c in dummy_chunks]
+        assert set(comp.standards_referenced) == {"DIN 2095", "ASTM A125"}
+
+        narrative = result["messages"][0].content
+        assert "Referenced standards" in narrative or "Standards consulted" in narrative
+        assert "DIN 2095" in narrative
+
+    def test_retrieval_miss_falls_back_gracefully(self) -> None:
+        """
+        Cuando retrieve_standards() no encuentra nada (o el store esta
+        vacio), el compliance report se construye igual, sin standards
+        citados, y sin fallar el pipeline.
+        """
+        self._mock_tool.invoke.return_value = json.dumps({
+            "status": "ok",
+            "report": {
+                "approved": True,
+                "safety_factor_shear": 2.1,
+                "safety_factor_buckling": 1.8,
+                "safety_factor_fatigue": None,
+                "spring_index": 8.0,
+                "wahl_factor": 1.184,
+                "corrected_shear_stress_mpa": 320.5,
+                "slenderness_ratio": 2.14,
+                "applicable_standard": "DIN 2095 / ASTM A125",
+                "failure_modes": [],
+                "redesign_directives": [],
+            },
+        })
+
+        from app.agents.agent4_compliance import normative_inspector_node
+
+        with patch(
+            "app.agents.agent4_compliance.retrieve_standards",
+            return_value=[],
+        ):
+            geometry = self._make_geometry()
+            material = self._make_material()
+            requirements = self._make_requirements()
+            state = _make_agent_state(
+                geometry=geometry,
+                material=material,
+                requirements=requirements,
+            )
+            result = normative_inspector_node(state)
+
+        comp: ComplianceReport = result["compliance"]
+        assert comp.retrieved_standards == []
+        assert comp.standards_referenced == []
+        assert comp.approved is True
+        assert result["current_step"] == "normative_approved"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Agent 5 — Commercial Optimiser

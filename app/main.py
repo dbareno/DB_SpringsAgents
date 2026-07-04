@@ -64,6 +64,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         logger.exception("Materials seed failed — continuing startup anyway.")
 
+    # Ingest the bundled starter standards corpus idempotently (safe to run
+    # on every boot — required so the .exe self-ingests on first launch).
+    try:
+        from scripts.ingest_standards import ingest as ingest_standards
+
+        ingest_results = ingest_standards()
+        total_chunks = sum(ingest_results.values())
+        logger.info("Standards corpus ingested (%d new chunks).", total_chunks)
+    except Exception:
+        logger.exception("Standards ingestion failed — continuing startup anyway.")
+
     yield
     logger.info("=== Spring Design Agent API shutting down ===")
 

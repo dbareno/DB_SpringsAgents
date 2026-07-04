@@ -30,7 +30,12 @@ asyncpg>=0.30.0                    # PostgreSQL async driver
 alembic>=1.13.0                    # DB migrations
 
 # ── Vector store ──────────────────────────────────────────────────────────
-chromadb>=0.5.0
+# ChromaDB replaced (Phase 2 / ADR-3): its default embedder pulls onnxruntime
+# (DLL load failure locally) and the frozen .exe is missing
+# chromadb.telemetry.product.posthog. sqlite-vec is a plain SQLite loadable
+# extension with no native dependency tree — safe to freeze with PyInstaller.
+# See app/standards/ for the store, embedder, ingestion, and retrieval.
+sqlite-vec>=0.1.0
 
 # ── PDF parsing ───────────────────────────────────────────────────────────
 pypdf>=5.0.0

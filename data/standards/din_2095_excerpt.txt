@@ -1,0 +1,36 @@
+DIN 2095 (simplified excerpt) — Cylindrical helical compression springs made
+from round wire — Quality requirements for dimensions and calculation.
+
+Clause 4.1 — Spring index. The spring index C, defined as the ratio of mean
+coil diameter D to wire diameter d (C = D/d), shall be between 4 and 20 for
+compression springs manufactured from round wire. Values below 4 make
+coiling difficult and induce excessive stress concentration at the wire
+surface. Values above 20 make the spring prone to tangling and buckling.
+
+Clause 5.3 — Slenderness and buckling. The slenderness ratio, defined as the
+free length L0 divided by the mean coil diameter D, shall not exceed 5.26 for
+springs with fixed-free end conditions (one end free to rotate and translate)
+to avoid lateral buckling under axial load. Springs guided within a sleeve or
+over a mandrel may tolerate a higher slenderness ratio; consult the guided
+end-condition tables in Annex B.
+
+Clause 6.1 — Allowable shear stress. The corrected shear stress, computed by
+applying the Wahl stress-concentration factor to the nominal torsional shear
+stress, must not exceed 45 percent of the wire's tensile yield strength Sy
+for static (non-cyclic) loading conditions, and must not exceed 30 percent of
+Sy for dynamic (fatigue, cyclic) loading conditions. Exceeding these limits
+indicates an unacceptable risk of yielding or fatigue failure within the
+specified service life.
+
+Clause 6.4 — Fatigue safety factor. For springs subjected to cyclic loading,
+a fatigue safety factor of at least 1.3, computed against the Goodman
+fatigue criterion, is required before the design may be approved for
+production. Designs below this threshold shall be flagged for redesign,
+typically by reducing wire stress or selecting a higher-fatigue-strength
+alloy.
+
+Clause 7.2 — Heat treatment. Compression springs manufactured from
+cold-drawn or oil-tempered wire shall be stress-relieved after coiling at a
+temperature and duration appropriate to the wire grade, in accordance with
+ASTM A125, to reduce residual coiling stresses before shot peening or final
+inspection.
