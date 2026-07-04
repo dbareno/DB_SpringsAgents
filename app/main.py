@@ -24,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1.design import router as design_router
+from app.api.v1.materials import router as materials_router
 from app.core.settings import get_settings
 
 settings = get_settings()
@@ -52,7 +53,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info(
         "LLM priority order: %s", settings.llm_priority_order
     )
-    # Future: warm up DB connections, ChromaDB client, etc.
+
+    # Seed the materials catalogue idempotently (safe to run on every boot —
+    # required so the .exe populates its own SQLite on first launch).
+    try:
+        from scripts.seed_materials import seed as seed_materials
+
+        inserted = await seed_materials()
+        logger.info("Materials catalogue seeded (%d new rows).", inserted)
+    except Exception:
+        logger.exception("Materials seed failed — continuing startup anyway.")
+
     yield
     logger.info("=== Spring Design Agent API shutting down ===")
 
@@ -86,6 +97,7 @@ app.add_middleware(
 
 # ── Routers ───────────────────────────────────────────────────────────────
 app.include_router(design_router)
+app.include_router(materials_router)
 
 # ── Frontend static build detection (standalone .exe mode) ──────────────
 import os

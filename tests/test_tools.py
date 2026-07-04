@@ -61,7 +61,15 @@ class TestGeometryTool:
         assert g["angular_deflection_deg"] is not None
 
 
+@pytest.mark.usefixtures("patch_materials_db_session")
 class TestMaterialsTool:
+    """
+    Tests para query_material_properties_tool contra una DB SQLite en
+    memoria (fixture ``patch_materials_db_session``), no contra el stub
+    hardcodeado — Fase 1 mueve la fuente de verdad a la tabla
+    ``spring_materials``.
+    """
+
     def test_basic_query(self):
         result = json.loads(
             query_material_properties_tool.invoke({
@@ -103,6 +111,19 @@ class TestMaterialsTool:
             })
         )
         assert result["status"] == "no_match"
+        assert result["closest"] == []
+
+    def test_excludes_inactive_materials(self):
+        """Materiales con active=False nunca deben aparecer en candidates."""
+        result = json.loads(
+            query_material_properties_tool.invoke({
+                "operating_temperature_c": 25.0,
+                "corrosion_resistant": False,
+            })
+        )
+        assert result["status"] == "ok"
+        names = [c["name"] for c in result["candidates"]]
+        assert "Retired Test Alloy" not in names
 
 
 class TestComplianceTool:

@@ -9,12 +9,16 @@ ToolNode can invoke it automatically when an agent emits a ToolCall.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
 
 import pandas as pd
 from langchain_core.tools import tool
+
+from app.db.repositories.material_repository import MaterialRepository
+from app.db.session import db_session
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +92,12 @@ def query_material_properties_tool(
     min_yield_strength_mpa: float | None = None,
 ) -> str:
     """
-    Query the PostgreSQL materials catalogue and return the best-matching
+    Query the ``spring_materials`` table and return the best-matching
     materials ranked by suitability.
 
-    In production this executes a parameterised SQL query against the
-    ``spring_materials`` table.  The stub implementation returns a representative
-    dataset so the graph can be executed without a live database.
+    Reads live catalogue data via ``MaterialRepository`` — prices and
+    availability update without a code change or restart. Only ``active``
+    (non soft-deleted) materials are considered.
 
     Args:
         operating_temperature_c: Maximum operating temperature (°C).
@@ -108,109 +112,15 @@ def query_material_properties_tool(
         JSON string with candidate list AND a rationale summary.
     """
     try:
-        # ── Stub dataset (replace with asyncpg/SQLAlchemy query in production) ─
-        ALL_MATERIALS: list[dict[str, Any]] = [
-            {
-                "material_id": 1,
-                "name": "ASTM A228 Music Wire",
-                "shear_modulus_gpa": 81.5,
-                "elastic_modulus_gpa": 207.0,
-                "density_kg_m3": 7850.0,
-                "yield_strength_mpa": 1580.0,
-                "ultimate_strength_mpa": 1900.0,
-                "max_temp_c": 120.0,
-                "corrosion_resistant": False,
-                "cost_usd_per_kg": 3.80,
-            },
-            {
-                "material_id": 2,
-                "name": "ASTM A227 Hard-Drawn Wire",
-                "shear_modulus_gpa": 79.3,
-                "elastic_modulus_gpa": 200.0,
-                "density_kg_m3": 7850.0,
-                "yield_strength_mpa": 1100.0,
-                "ultimate_strength_mpa": 1380.0,
-                "max_temp_c": 120.0,
-                "corrosion_resistant": False,
-                "cost_usd_per_kg": 2.10,
-            },
-            {
-                "material_id": 3,
-                "name": "ASTM A313 Type 302 Stainless Steel",
-                "shear_modulus_gpa": 69.0,
-                "elastic_modulus_gpa": 193.0,
-                "density_kg_m3": 7920.0,
-                "yield_strength_mpa": 1100.0,
-                "ultimate_strength_mpa": 1380.0,
-                "max_temp_c": 260.0,
-                "corrosion_resistant": True,
-                "cost_usd_per_kg": 9.50,
-            },
-            {
-                "material_id": 4,
-                "name": "ASTM B197 Phosphor Bronze",
-                "shear_modulus_gpa": 41.4,
-                "elastic_modulus_gpa": 103.0,
-                "density_kg_m3": 8860.0,
-                "yield_strength_mpa": 510.0,
-                "ultimate_strength_mpa": 640.0,
-                "max_temp_c": 95.0,
-                "corrosion_resistant": True,
-                "cost_usd_per_kg": 14.20,
-            },
-            {
-                "material_id": 5,
-                "name": "ASTM A401 Chrome-Silicon (SAE 9254)",
-                "shear_modulus_gpa": 77.2,
-                "elastic_modulus_gpa": 200.0,
-                "density_kg_m3": 7850.0,
-                "yield_strength_mpa": 1720.0,
-                "ultimate_strength_mpa": 2000.0,
-                "max_temp_c": 245.0,
-                "corrosion_resistant": False,
-                "cost_usd_per_kg": 5.60,
-            },
-            {
-                "material_id": 6,
-                "name": "DIN 17223-C Chrome-Vanadium (VD-SiCr)",
-                "shear_modulus_gpa": 78.5,
-                "elastic_modulus_gpa": 206.0,
-                "density_kg_m3": 7850.0,
-                "yield_strength_mpa": 1650.0,
-                "ultimate_strength_mpa": 1950.0,
-                "max_temp_c": 220.0,
-                "corrosion_resistant": False,
-                "cost_usd_per_kg": 6.90,
-            },
-            {
-                "material_id": 7,
-                "name": "Inconel 718 (High-Temp)",
-                "shear_modulus_gpa": 77.0,
-                "elastic_modulus_gpa": 200.0,
-                "density_kg_m3": 8190.0,
-                "yield_strength_mpa": 1100.0,
-                "ultimate_strength_mpa": 1380.0,
-                "max_temp_c": 590.0,
-                "corrosion_resistant": True,
-                "cost_usd_per_kg": 95.00,
-            },
-        ]
+        rows = _fetch_materials_sync(
+            min_operating_temperature_c=operating_temperature_c,
+            corrosion_resistant=corrosion_resistant if corrosion_resistant else None,
+            cyclic_load=cyclic_load,
+            max_cost_usd_per_kg=max_cost_usd_per_kg,
+            min_yield_strength_mpa=min_yield_strength_mpa,
+        )
 
-        df = pd.DataFrame(ALL_MATERIALS)
-
-        # ── SQL-equivalent filters ─────────────────────────────────────────
-        df = df[df["max_temp_c"] >= operating_temperature_c]
-
-        if corrosion_resistant:
-            df = df[df["corrosion_resistant"] == True]  # noqa: E712
-
-        if max_cost_usd_per_kg is not None:
-            df = df[df["cost_usd_per_kg"] <= max_cost_usd_per_kg]
-
-        if min_yield_strength_mpa is not None:
-            df = df[df["yield_strength_mpa"] >= min_yield_strength_mpa]
-
-        if df.empty:
+        if not rows:
             missing = []
             if min_yield_strength_mpa:
                 missing.append(f"Sy ≥ {min_yield_strength_mpa:.0f}MPa")
@@ -221,7 +131,10 @@ def query_material_properties_tool(
                     f"({' + '.join(missing) if missing else 'filters'}). "
                     "Consider relaxing requirements."
                 ),
+                "closest": [],
             })
+
+        df = pd.DataFrame(rows)
 
         # ── Multi-factor scoring ───────────────────────────────────────────
         df = _score_candidates(
@@ -238,3 +151,71 @@ def query_material_properties_tool(
     except Exception as exc:
         logger.exception("query_material_properties_tool failed")
         return json.dumps({"status": "error", "message": str(exc)})
+
+
+async def _fetch_materials(
+    *,
+    min_operating_temperature_c: float | None,
+    corrosion_resistant: bool | None,
+    cyclic_load: bool,
+    max_cost_usd_per_kg: float | None,
+    min_yield_strength_mpa: float | None,
+) -> list[dict[str, Any]]:
+    """Query ``spring_materials`` via ``MaterialRepository`` and shape rows.
+
+    Returns a list of plain dicts matching the tool's historical stub shape
+    (``material_id`` instead of the ORM's ``id``), so downstream scoring and
+    Agent 3's consumption logic need no changes.
+    """
+    async with db_session() as session:
+        repo = MaterialRepository(session)
+        materials = await repo.list_filtered(
+            min_operating_temperature_c=min_operating_temperature_c,
+            corrosion_resistant=corrosion_resistant,
+            cyclic_load=cyclic_load,
+            max_cost_usd_per_kg=max_cost_usd_per_kg,
+            min_yield_strength_mpa=min_yield_strength_mpa,
+            active_only=True,
+        )
+        return [
+            {
+                "material_id": m.id,
+                "name": m.name,
+                "shear_modulus_gpa": m.shear_modulus_gpa,
+                "elastic_modulus_gpa": m.elastic_modulus_gpa,
+                "density_kg_m3": m.density_kg_m3,
+                "yield_strength_mpa": m.yield_strength_mpa,
+                "ultimate_strength_mpa": m.ultimate_strength_mpa,
+                "max_temp_c": m.max_temp_c,
+                "corrosion_resistant": m.corrosion_resistant,
+                "cost_usd_per_kg": m.cost_usd_per_kg,
+            }
+            for m in materials
+        ]
+
+
+def _fetch_materials_sync(
+    *,
+    min_operating_temperature_c: float | None,
+    corrosion_resistant: bool | None,
+    cyclic_load: bool,
+    max_cost_usd_per_kg: float | None,
+    min_yield_strength_mpa: float | None,
+) -> list[dict[str, Any]]:
+    """Sync bridge for ``_fetch_materials``.
+
+    ``query_material_properties_tool`` is a LangChain ``@tool`` invoked
+    synchronously (``.invoke(...)``) by the agents, while the DB layer is
+    fully async. ``asyncio.run`` is safe here because this tool is never
+    called from within a running event loop (LangGraph node execution for
+    this tool is synchronous).
+    """
+    return asyncio.run(
+        _fetch_materials(
+            min_operating_temperature_c=min_operating_temperature_c,
+            corrosion_resistant=corrosion_resistant,
+            cyclic_load=cyclic_load,
+            max_cost_usd_per_kg=max_cost_usd_per_kg,
+            min_yield_strength_mpa=min_yield_strength_mpa,
+        )
+    )

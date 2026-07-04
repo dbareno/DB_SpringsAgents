@@ -55,6 +55,7 @@ class SpringMaterial(Base):
     corrosion_resistant: Mapped[bool] = mapped_column(Boolean, default=False)
     cost_usd_per_kg: Mapped[float] = mapped_column(Float, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Relationships
     iterations: Mapped[list["DesignIteration"]] = relationship(

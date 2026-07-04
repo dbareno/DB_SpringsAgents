@@ -8,12 +8,14 @@ All database interactions are mocked — no real database required.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.db.models import DesignProject
+from app.db.models import Base, DesignProject, SpringMaterial
 
 
 def _build_execute_chain(
@@ -164,3 +166,114 @@ def mock_graph_clarify_state() -> dict:
         "material": None,
         "errors": [],
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Seeded in-memory SQLite (materials catalogue) — used by tool/API tests that
+# need a real DB round-trip instead of a mocked AsyncSession.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_TEST_MATERIALS: list[dict[str, object]] = [
+    {
+        "name": "ASTM A228 Music Wire",
+        "standard": "ASTM A228",
+        "shear_modulus_gpa": 81.5,
+        "elastic_modulus_gpa": 207.0,
+        "density_kg_m3": 7850.0,
+        "yield_strength_mpa": 1580.0,
+        "ultimate_strength_mpa": 1900.0,
+        "max_temp_c": 120.0,
+        "corrosion_resistant": False,
+        "cost_usd_per_kg": 3.80,
+        "active": True,
+    },
+    {
+        "name": "ASTM A313 Type 302 Stainless Steel",
+        "standard": "ASTM A313",
+        "shear_modulus_gpa": 69.0,
+        "elastic_modulus_gpa": 193.0,
+        "density_kg_m3": 7920.0,
+        "yield_strength_mpa": 1100.0,
+        "ultimate_strength_mpa": 1380.0,
+        "max_temp_c": 260.0,
+        "corrosion_resistant": True,
+        "cost_usd_per_kg": 9.50,
+        "active": True,
+    },
+    {
+        "name": "Inconel 718 (High-Temp)",
+        "standard": "AMS 5596",
+        "shear_modulus_gpa": 77.0,
+        "elastic_modulus_gpa": 200.0,
+        "density_kg_m3": 8190.0,
+        "yield_strength_mpa": 1100.0,
+        "ultimate_strength_mpa": 1380.0,
+        "max_temp_c": 590.0,
+        "corrosion_resistant": True,
+        "cost_usd_per_kg": 95.00,
+        "active": True,
+    },
+    {
+        "name": "Retired Test Alloy",
+        "standard": "N/A",
+        "shear_modulus_gpa": 70.0,
+        "elastic_modulus_gpa": 190.0,
+        "density_kg_m3": 7800.0,
+        "yield_strength_mpa": 900.0,
+        "ultimate_strength_mpa": 1000.0,
+        "max_temp_c": 100.0,
+        "corrosion_resistant": False,
+        "cost_usd_per_kg": 1.0,
+        "active": False,
+    },
+]
+
+
+@pytest.fixture
+async def seeded_materials_engine():
+    """
+    Creates an in-memory SQLite async engine, creates the schema, and seeds
+    a small representative materials catalogue (including one inactive
+    material to exercise the soft-delete filter).
+
+    Yields the ``async_sessionmaker`` so tests can build sessions directly,
+    or patch ``app.db.session.get_session_factory`` to return it.
+    """
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as session:
+        for data in _TEST_MATERIALS:
+            session.add(SpringMaterial(**data))
+        await session.commit()
+
+    yield session_factory
+
+    await engine.dispose()
+
+
+@pytest.fixture
+def patch_materials_db_session(monkeypatch, seeded_materials_engine):
+    """
+    Patches ``app.tools.materials.db_session`` to yield sessions from the
+    seeded in-memory SQLite engine, so ``query_material_properties_tool``
+    performs a real (but isolated) DB round-trip in tests.
+    """
+
+    @asynccontextmanager
+    async def _fake_db_session() -> AsyncGenerator[AsyncSession, None]:
+        async with seeded_materials_engine() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    monkeypatch.setattr("app.tools.materials.db_session", _fake_db_session)
+    return seeded_materials_engine

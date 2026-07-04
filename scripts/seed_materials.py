@@ -11,15 +11,17 @@ Run with:
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 
 # Ensure project root is on path when running as a script
 sys.path.insert(0, ".")
 
-from sqlalchemy import select
+from app.db.models import Base
+from app.db.repositories.material_repository import MaterialRepository
+from app.db.session import db_session, get_engine
 
-from app.db.models import Base, SpringMaterial
-from app.db.session import engine, AsyncSessionLocal
+logger = logging.getLogger(__name__)
 
 MATERIALS_SEED = [
     {
@@ -116,29 +118,36 @@ MATERIALS_SEED = [
 ]
 
 
-async def seed() -> None:
+async def seed() -> int:
+    """Idempotently upsert the seed catalogue into ``spring_materials``.
+
+    Returns the number of rows inserted (existing materials are skipped,
+    never overwritten, so re-running is always safe).
+    """
     # Create tables if they don't exist
+    engine = await get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        print("✓ Tables created / verified.")
+    print("[OK] Tables created / verified.")
 
-    async with AsyncSessionLocal() as session:
+    inserted = 0
+    async with db_session() as session:
+        repo = MaterialRepository(session)
         for mat_data in MATERIALS_SEED:
-            # Skip if already present (idempotent)
-            existing = await session.execute(
-                select(SpringMaterial).where(SpringMaterial.name == mat_data["name"])
-            )
-            if existing.scalar_one_or_none() is not None:
-                print(f"  – Skipping (already exists): {mat_data['name']}")
+            # Skip if already present (idempotent — matched by unique name)
+            existing = await repo.get_by_name(mat_data["name"])
+            if existing is not None:
+                print(f"  - Skipping (already exists): {mat_data['name']}")
                 continue
 
-            material = SpringMaterial(**mat_data)
-            session.add(material)
+            await repo.create(mat_data)
+            inserted += 1
             print(f"  + Inserting: {mat_data['name']}")
 
-        await session.commit()
-        print("✓ Materials seeded successfully.")
+    print(f"[OK] Materials seeded successfully ({inserted} inserted).")
+    return inserted
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     asyncio.run(seed())

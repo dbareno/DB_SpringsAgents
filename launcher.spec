@@ -36,6 +36,9 @@ a = Analysis(
         (str(PROJECT_ROOT / "frontend" / "out"), "frontend/out"),
         # Include the app package
         (str(PROJECT_ROOT / "app"), "app"),
+        # Include scripts package (seed_materials.py runs on every startup,
+        # including inside the frozen .exe — first-launch DB seed)
+        (str(PROJECT_ROOT / "scripts"), "scripts"),
     ],
     hiddenimports=[
         "uvicorn.logging",
@@ -61,6 +64,8 @@ a = Analysis(
         "chromadb",
         "httpx",
         "dotenv",
+        "multipart",
+        "python_multipart",
     ],
     hookspath=[],
     hooksconfig={},
