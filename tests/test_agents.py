@@ -667,6 +667,100 @@ class TestAgent3Materials:
         assert "material" not in result
         assert result["errors"][0]["error_type"] == "RuntimeError"
 
+    # ── Material candidates short-list ───────────────────────────────────
+
+    def test_material_candidates_populated(self) -> None:
+        """
+        Verifica que el agente expone una short-list de candidatos
+        (material_candidates) ademas del material seleccionado.
+        """
+        self._mock_tool.invoke.return_value = json.dumps({
+            "status": "ok",
+            "candidates": self.MULTIPLE_CANDIDATES,
+        })
+        self._setup_llm(material_id=1)
+
+        from app.agents.agent3_materials import materials_engineer_node
+
+        state = self._state_with_requirements()
+        result = materials_engineer_node(state)
+
+        assert "material_candidates" in result
+        candidates = result["material_candidates"]
+        assert len(candidates) == 2
+        assert all(isinstance(c, MaterialProperties) for c in candidates)
+        # El material seleccionado debe estar incluido en la short-list
+        assert any(c.material_id == 1 for c in candidates)
+        # Deduplicado por material_id
+        ids = [c.material_id for c in candidates]
+        assert len(ids) == len(set(ids))
+
+    def test_material_candidates_capped_at_three(self) -> None:
+        """
+        Verifica que la short-list se limita a los 3 mejores candidatos
+        (en el orden de ranking del tool).
+        """
+        extra = [
+            {**self.MULTIPLE_CANDIDATES[0], "material_id": 5,
+             "name": "ASTM A401 Chrome-Silicon (SAE 9254)", "score": 300.0},
+            {**self.MULTIPLE_CANDIDATES[0], "material_id": 6,
+             "name": "DIN 17223-C Chrome-Vanadium (VD-SiCr)", "score": 200.0},
+        ]
+        four_candidates = [
+            self.MULTIPLE_CANDIDATES[0],
+            extra[0],
+            extra[1],
+            self.MULTIPLE_CANDIDATES[1],
+        ]
+        self._mock_tool.invoke.return_value = json.dumps({
+            "status": "ok",
+            "candidates": four_candidates,
+        })
+        self._setup_llm(material_id=1)
+
+        from app.agents.agent3_materials import materials_engineer_node
+
+        state = self._state_with_requirements()
+        result = materials_engineer_node(state)
+
+        candidates = result["material_candidates"]
+        assert len(candidates) == 3
+        # Orden de ranking del tool preservado
+        assert [c.material_id for c in candidates] == [1, 5, 6]
+
+    def test_material_candidates_include_selected_outside_top3(self) -> None:
+        """
+        Verifica que si el LLM selecciona un material fuera del top-3,
+        la short-list igual lo incluye.
+        """
+        extra = [
+            {**self.MULTIPLE_CANDIDATES[0], "material_id": 5,
+             "name": "ASTM A401 Chrome-Silicon (SAE 9254)", "score": 300.0},
+            {**self.MULTIPLE_CANDIDATES[0], "material_id": 6,
+             "name": "DIN 17223-C Chrome-Vanadium (VD-SiCr)", "score": 200.0},
+        ]
+        four_candidates = [
+            self.MULTIPLE_CANDIDATES[0],
+            extra[0],
+            extra[1],
+            self.MULTIPLE_CANDIDATES[1],   # id 3 — ranked last
+        ]
+        self._mock_tool.invoke.return_value = json.dumps({
+            "status": "ok",
+            "candidates": four_candidates,
+        })
+        self._setup_llm(material_id=3)
+
+        from app.agents.agent3_materials import materials_engineer_node
+
+        state = self._state_with_requirements()
+        result = materials_engineer_node(state)
+
+        assert result["material"].material_id == 3
+        candidates = result["material_candidates"]
+        assert len(candidates) == 3
+        assert any(c.material_id == 3 for c in candidates)
+
     # ── Unit tests for helpers ───────────────────────────────────────────
 
     def test_extract_user_material_preference_stainless(self) -> None:
@@ -888,6 +982,24 @@ class TestAgent5Commercial:
         self._mock_tool = patcher.start()
         request.addfinalizer(patcher.stop)
 
+    @pytest.fixture(autouse=True)
+    def _patch_geo_tool(self, request: pytest.FixtureRequest) -> None:
+        """Parchea calculate_spring_geometry_tool.invoke (alternativas)."""
+        patcher = patch(
+            "app.agents.agent5_commercial.calculate_spring_geometry_tool"
+        )
+        self._mock_geo_tool = patcher.start()
+        request.addfinalizer(patcher.stop)
+
+    @pytest.fixture(autouse=True)
+    def _patch_comp_tool(self, request: pytest.FixtureRequest) -> None:
+        """Parchea compliance_verification_tool.invoke (alternativas)."""
+        patcher = patch(
+            "app.agents.agent5_commercial.compliance_verification_tool"
+        )
+        self._mock_comp_tool = patcher.start()
+        request.addfinalizer(patcher.stop)
+
     def _make_geometry(self) -> SpringGeometry:
         return SpringGeometry(
             wire_diameter_mm=3.5,
@@ -1101,3 +1213,378 @@ class TestAgent5Commercial:
 
         assert "commercial_proposals" not in result
         assert result["errors"][0]["error_type"] == "ValueError"
+
+    # ── Multiple material options (alternatives evaluation) ──────────────
+
+    def _make_alt_material(self) -> MaterialProperties:
+        return MaterialProperties(
+            material_id=5,
+            name="ASTM A401 Chrome-Silicon (SAE 9254)",
+            shear_modulus_gpa=77.2,
+            elastic_modulus_gpa=200.0,
+            density_kg_m3=7850.0,
+            yield_strength_mpa=1720.0,
+            ultimate_strength_mpa=2000.0,
+            max_temp_c=245.0,
+            corrosion_resistant=False,
+            cost_usd_per_kg=5.60,
+        )
+
+    def _mock_geometry_tool_ok(self) -> None:
+        """Configura el mock del geometry tool para las alternativas."""
+        self._mock_geo_tool.invoke.return_value = json.dumps({
+            "status": "ok",
+            "geometry": {
+                "wire_diameter_mm": 3.2,
+                "mean_coil_diameter_mm": 26.0,
+                "outer_diameter_mm": 29.2,
+                "inner_diameter_mm": 22.8,
+                "active_coils": 7.5,
+                "total_coils": 9.5,
+                "free_length_mm": 55.0,
+                "pitch_mm": 7.0,
+                "spring_index": 8.125,
+                "spring_rate_n_mm": 5.0,
+                "torsion_moment_n_mm": None,
+                "angular_deflection_deg": None,
+            },
+        })
+
+    def _mock_compliance_tool(self, approved: bool = True) -> None:
+        """Configura el mock del compliance tool para las alternativas."""
+        self._mock_comp_tool.invoke.return_value = json.dumps({
+            "status": "ok",
+            "report": {
+                "approved": approved,
+                "safety_factor_shear": 1.9,
+                "safety_factor_buckling": 1.6,
+                "safety_factor_fatigue": None,
+                "spring_index": 8.125,
+                "wahl_factor": 1.18,
+                "corrected_shear_stress_mpa": 350.0,
+                "slenderness_ratio": 2.1,
+                "applicable_standard": "DIN 2095 / ASTM A125",
+                "failure_modes": [] if approved else [
+                    "Insufficient shear safety factor: 1.100 < 1.30"
+                ],
+                "redesign_directives": [],
+            },
+        })
+
+    def _mock_commercial_tool_multi(self) -> None:
+        """Mock de scoring con 2 propuestas: P002 gana el score (rank 1)."""
+        three_js = {
+            "wireRadius": 1.75,
+            "coilRadius": 14.0,
+            "totalCoils": 10.0,
+            "height": 60.0,
+            "tubeSegments": 64,
+            "radialSegments": 16,
+        }
+        self._mock_tool.invoke.return_value = json.dumps({
+            "status": "ok",
+            "ranked_proposals": [
+                {
+                    "proposal_id": "P002",
+                    "rank": 1,
+                    "composite_score": 0.91,
+                    "wire_mass_kg": 0.010,
+                    "material_cost_usd": 0.0560,
+                    "estimated_life_cycles": 950_000,
+                    "three_js_params": three_js,
+                },
+                {
+                    "proposal_id": "P001",
+                    "rank": 2,
+                    "composite_score": 0.85,
+                    "wire_mass_kg": 0.012,
+                    "material_cost_usd": 0.0456,
+                    "estimated_life_cycles": 1_050_000,
+                    "three_js_params": three_js,
+                },
+            ],
+            "chart_data": [
+                {
+                    "proposal_id": "P002",
+                    "rank": 1,
+                    "composite_score": 0.91,
+                    "material_cost_usd": 0.0560,
+                    "estimated_life_cycles": 950_000,
+                    "safety_factor_shear": 1.9,
+                    "safety_factor_buckling": 1.6,
+                    "wire_mass_kg": 0.010,
+                },
+                {
+                    "proposal_id": "P001",
+                    "rank": 2,
+                    "composite_score": 0.85,
+                    "material_cost_usd": 0.0456,
+                    "estimated_life_cycles": 1_050_000,
+                    "safety_factor_shear": 2.1,
+                    "safety_factor_buckling": 1.8,
+                    "wire_mass_kg": 0.012,
+                },
+            ],
+        })
+
+    def _make_multi_state(
+        self,
+        candidates: list[MaterialProperties] | None = None,
+    ) -> AgentState:
+        """State completo con material primario aprobado + candidatos."""
+        geometry = self._make_geometry()
+        material = self._make_material()
+        compliance = ComplianceReport(
+            approved=True,
+            safety_factor_shear=2.1,
+            safety_factor_buckling=1.8,
+            safety_factor_fatigue=None,
+            applicable_standard="DIN 2095",
+            failure_modes=[],
+            redesign_directives=[],
+        )
+        requirements = UserRequirements(
+            raw_input="Design a spring",
+            spring_type="compression",
+            load_force_n=100.0,
+            deflection_mm=20.0,
+        )
+        overrides: dict[str, object] = {
+            "geometry": geometry,
+            "material": material,
+            "compliance": compliance,
+            "requirements": requirements,
+        }
+        if candidates is not None:
+            overrides["material_candidates"] = candidates
+        return _make_agent_state(**overrides)
+
+    def test_viable_alternative_becomes_option(self) -> None:
+        """
+        Verifica que una alternativa viable (geometria ok + compliance
+        aprobado) se agrega como propuesta P002 y aparece en options.
+        """
+        self._mock_geometry_tool_ok()
+        self._mock_compliance_tool(approved=True)
+        self._mock_commercial_tool_multi()
+
+        from app.agents.agent5_commercial import commercial_optimiser_node
+
+        state = self._make_multi_state(
+            candidates=[self._make_material(), self._make_alt_material()],
+        )
+        result = commercial_optimiser_node(state)
+
+        # El scoring recibio 2 propuestas (P001 + P002)
+        scoring_input = json.loads(
+            self._mock_tool.invoke.call_args[0][0]["proposals"]
+        )
+        assert [p["proposal_id"] for p in scoring_input] == ["P001", "P002"]
+        # P002 usa las propiedades del material alternativo
+        assert scoring_input[1]["cost_usd_per_kg"] == 5.60
+
+        options = result["final_report"]["commercial"]["options"]
+        assert len(options) == 2
+
+        by_id = {o["proposal_id"]: o for o in options}
+        # El primario sigue siendo el recomendado aunque no gane el rank
+        assert by_id["P001"]["is_recommended"] is True
+        assert by_id["P001"]["rank"] == 2
+        assert by_id["P002"]["is_recommended"] is False
+        assert by_id["P002"]["rank"] == 1
+        assert by_id["P002"]["material"]["name"] == (
+            "ASTM A401 Chrome-Silicon (SAE 9254)"
+        )
+        assert by_id["P002"]["geometry"]["wire_diameter_mm"] == 3.2
+        assert by_id["P002"]["compliance"]["approved"] is True
+        # Campos comerciales presentes
+        for field in (
+            "wire_mass_kg", "material_cost_usd",
+            "estimated_life_cycles", "composite_score",
+        ):
+            assert field in by_id["P002"]
+
+    def test_non_compliant_alternative_excluded(self) -> None:
+        """
+        Verifica que una alternativa cuya compliance falla NO se convierte
+        en propuesta: el scoring recibe solo P001.
+        """
+        self._mock_geometry_tool_ok()
+        self._mock_compliance_tool(approved=False)
+        self._mock_commercial_tool()
+
+        from app.agents.agent5_commercial import commercial_optimiser_node
+
+        state = self._make_multi_state(
+            candidates=[self._make_material(), self._make_alt_material()],
+        )
+        result = commercial_optimiser_node(state)
+
+        scoring_input = json.loads(
+            self._mock_tool.invoke.call_args[0][0]["proposals"]
+        )
+        assert [p["proposal_id"] for p in scoring_input] == ["P001"]
+
+        options = result["final_report"]["commercial"]["options"]
+        assert len(options) == 1
+        assert options[0]["proposal_id"] == "P001"
+        assert options[0]["is_recommended"] is True
+
+    def test_alternative_evaluation_exception_is_skipped(self) -> None:
+        """
+        Verifica que una excepcion al evaluar una alternativa se ignora
+        (la alternativa se descarta) sin romper el reporte final.
+        """
+        self._mock_geo_tool.invoke.side_effect = RuntimeError("optimizer crashed")
+        self._mock_commercial_tool()
+
+        from app.agents.agent5_commercial import commercial_optimiser_node
+
+        state = self._make_multi_state(
+            candidates=[self._make_material(), self._make_alt_material()],
+        )
+        result = commercial_optimiser_node(state)
+
+        assert "errors" not in result
+        assert "final_report" in result
+        options = result["final_report"]["commercial"]["options"]
+        assert len(options) == 1
+        assert options[0]["proposal_id"] == "P001"
+
+    def test_no_candidates_behaves_like_single_material_path(self) -> None:
+        """
+        Verifica que sin material_candidates (key absent) el comportamiento
+        es identico al actual: una sola propuesta, sin llamadas a
+        geometry/compliance.
+        """
+        self._mock_commercial_tool()
+
+        from app.agents.agent5_commercial import commercial_optimiser_node
+
+        state = self._make_multi_state(candidates=None)
+        result = commercial_optimiser_node(state)
+
+        self._mock_geo_tool.invoke.assert_not_called()
+        self._mock_comp_tool.invoke.assert_not_called()
+
+        scoring_input = json.loads(
+            self._mock_tool.invoke.call_args[0][0]["proposals"]
+        )
+        assert [p["proposal_id"] for p in scoring_input] == ["P001"]
+        assert len(result["commercial_proposals"]) == 1
+
+        options = result["final_report"]["commercial"]["options"]
+        assert len(options) == 1
+        assert options[0]["is_recommended"] is True
+
+    def test_empty_candidates_list_behaves_like_single_material_path(self) -> None:
+        """
+        Verifica que con material_candidates=[] explícito el comportamiento
+        es idéntico al path de un solo material.
+        """
+        self._mock_commercial_tool()
+
+        from app.agents.agent5_commercial import commercial_optimiser_node
+
+        state = self._make_multi_state(candidates=[])
+        result = commercial_optimiser_node(state)
+
+        self._mock_geo_tool.invoke.assert_not_called()
+        self._mock_comp_tool.invoke.assert_not_called()
+
+        scoring_input = json.loads(
+            self._mock_tool.invoke.call_args[0][0]["proposals"]
+        )
+        assert [p["proposal_id"] for p in scoring_input] == ["P001"]
+        assert len(result["commercial_proposals"]) == 1
+
+        options = result["final_report"]["commercial"]["options"]
+        assert len(options) == 1
+        assert options[0]["is_recommended"] is True
+
+    def test_single_candidate_equals_selected_no_alternatives(self) -> None:
+        """
+        Verifica que cuando la short-list solo contiene el material
+        seleccionado, no se evalua ninguna alternativa.
+        """
+        self._mock_commercial_tool()
+
+        from app.agents.agent5_commercial import commercial_optimiser_node
+
+        state = self._make_multi_state(candidates=[self._make_material()])
+        result = commercial_optimiser_node(state)
+
+        self._mock_geo_tool.invoke.assert_not_called()
+        self._mock_comp_tool.invoke.assert_not_called()
+        assert len(result["final_report"]["commercial"]["options"]) == 1
+
+    def test_multi_option_with_null_compliance_no_crash(self) -> None:
+        """
+        Verifica que cuando compliance es None en el estado (P001 sin
+        ComplianceReport), el agente no falla y la opción P001 emite
+        compliance: {} en el dump, con P001 marcado como is_recommended.
+        """
+        self._mock_geometry_tool_ok()
+        self._mock_compliance_tool(approved=True)
+        self._mock_commercial_tool()
+
+        from app.agents.agent5_commercial import commercial_optimiser_node
+
+        geometry = self._make_geometry()
+        material = self._make_material()
+        requirements = UserRequirements(
+            raw_input="Design a spring",
+            spring_type="compression",
+            load_force_n=100.0,
+            deflection_mm=20.0,
+        )
+        # compliance intentionally None
+        state = _make_agent_state(
+            geometry=geometry,
+            material=material,
+            compliance=None,
+            requirements=requirements,
+            material_candidates=[self._make_material(), self._make_alt_material()],
+        )
+        result = commercial_optimiser_node(state)
+
+        # Must not crash
+        assert "final_report" in result
+
+        options = result["final_report"]["commercial"]["options"]
+        by_id = {o["proposal_id"]: o for o in options}
+
+        # P001 present and marked recommended
+        assert "P001" in by_id
+        assert by_id["P001"]["is_recommended"] is True
+
+        # compliance for P001 is an empty dict (compliance was None)
+        assert by_id["P001"]["compliance"] == {}
+
+    def test_backward_compat_report_fields_intact(self) -> None:
+        """
+        Verifica que geometry/material/compliance de nivel superior en
+        final_report siguen siendo los del material recomendado (primario)
+        y que ranked_proposals/chart_data cubren todas las opciones.
+        """
+        self._mock_geometry_tool_ok()
+        self._mock_compliance_tool(approved=True)
+        self._mock_commercial_tool_multi()
+
+        from app.agents.agent5_commercial import commercial_optimiser_node
+
+        state = self._make_multi_state(
+            candidates=[self._make_material(), self._make_alt_material()],
+        )
+        result = commercial_optimiser_node(state)
+
+        report = result["final_report"]
+        # Los campos de nivel superior corresponden al primario (P001)
+        assert report["geometry"] == self._make_geometry().model_dump()
+        assert report["material"] == self._make_material().model_dump()
+        assert report["summary"]["material"] == "ASTM A228 Music Wire"
+        # ranked_proposals y chart_data cubren TODAS las opciones
+        assert len(report["commercial"]["ranked_proposals"]) == 2
+        assert len(report["commercial"]["chart_data"]) == 2
+        # commercial_proposals (state) tambien incluye ambas
+        assert len(result["commercial_proposals"]) == 2

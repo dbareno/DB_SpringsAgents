@@ -20,8 +20,11 @@ Routing logic overview
                                                                      ▼
                                                          [Agent 3: materials_engineer]
                                                                      │
-                                                         [Agent 2: design_engineer]
-                                                                     │
+                                                    ┌────────────────┴────────────────┐
+                                                    │                                 │
+                                              no_material_match              [Agent 2: design_engineer]
+                                                    │                                 │
+                                              HANDLE_ERROR                            │
                                                          [Agent 4: normative_inspector]
                                                                      │
                                       ┌──────────────────────────────┤
@@ -81,6 +84,33 @@ def route_after_requirements(state: AgentState) -> str:
 
     logger.info("[Router] Requirements complete → design_loop.")
     return "design_loop"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Route after Agent 3 (Materials Engineer)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def route_after_materials(state: AgentState) -> str:
+    """
+    Decide what to do after material selection.
+
+    Returns
+    -------
+    "ok"     → a material was selected; proceed to design engineer.
+    "error"  → no material satisfies the constraints (or a tool error occurred).
+    """
+    step = state.get("current_step", "")
+
+    if "failed" in step:
+        logger.warning("[Router] Materials engineer failed → error branch.")
+        return "error"
+
+    if state.get("material") is None:
+        logger.warning("[Router] material is None → error branch.")
+        return "error"
+
+    return "ok"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

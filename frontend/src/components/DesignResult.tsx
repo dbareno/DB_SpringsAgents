@@ -9,6 +9,7 @@ import GeometryTable from '@/components/GeometryTable';
 import ComplianceCard from '@/components/ComplianceCard';
 import ScoreChart from '@/components/ScoreChart';
 import ProposalsTable from '@/components/ProposalsTable';
+import MaterialOptions from '@/components/MaterialOptions';
 import type { Report } from '@/services/types';
 
 // ─── Three.js viewer con dynamic import (ssr: false) ─────────────────────────
@@ -103,6 +104,10 @@ export default function DesignResult({ report, sessionId, onExportPdf, onExportD
             )}
             {activeTab === 'commercial' && (
               <div className="space-y-4">
+                {/* Opciones de material (reportes antiguos no traen options) */}
+                {report.commercial.options && report.commercial.options.length > 0 && (
+                  <MaterialOptions options={report.commercial.options} />
+                )}
                 <ScoreChart data={report.commercial.chart_data} />
                 <ProposalsTable proposals={report.commercial.ranked_proposals} />
               </div>

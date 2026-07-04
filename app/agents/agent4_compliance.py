@@ -28,7 +28,8 @@ from langchain_core.messages import AIMessage
 from app.core.llm_factory import get_factory, rotate_llm_on_quota_error
 from app.db.chromadb_client import query_standards
 from app.schemas.state import AgentState, ComplianceReport
-from app.tools.spring_tools import compliance_verification_tool
+from app.tools.compliance import compliance_verification_tool
+from app.tools.physics import FATIGUE_MIN_LOAD_RATIO
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ def normative_inspector_node(state: AgentState) -> dict:
     # Add fatigue inputs if available
     if requirements and requirements.cyclic_load and requirements.load_force_n:
         F = requirements.load_force_n
-        tool_input["min_force_n"] = 0.1 * F      # assume 10% min load
+        tool_input["min_force_n"] = FATIGUE_MIN_LOAD_RATIO * F  # assume 10% min load
         tool_input["max_force_n"] = F
 
     try:

@@ -15,8 +15,10 @@ Graph topology
     │       ▼            ▼            ▼                               │
     │  clarification   error    materials_engineer                     │
     │  (terminal)   (terminal)       │                                 │
-    │                           design_engineer                        │
-    │                                │                                 │
+    │                     ┌──────────┴──────────┐                     │
+    │                     ▼                     ▼                     │
+    │                   error              design_engineer             │
+    │                (terminal)                 │                      │
     │                        normative_inspector                       │
     │                                │                                 │
     │               ┌────────────────┼────────────┐                   │
@@ -51,6 +53,7 @@ from app.agents.agent6_orchestrator import (
     increment_iteration_node,
     iteration_limit_node,
     route_after_compliance,
+    route_after_materials,
     route_after_requirements,
 )
 from app.schemas.state import AgentState
@@ -138,9 +141,18 @@ def build_spring_design_graph() -> StateGraph:
         },
     )
 
-    # ── Linear: materials → design → compliance ────────────────────────
-    builder.add_edge(N_MATERIALS, N_DESIGN)
-    builder.add_edge(N_DESIGN,    N_COMPLIANCE)
+    # ── After Agent 3: conditional routing ────────────────────────────
+    #    (a NoMaterialMatch / tool error must NOT fall through to Agent 2,
+    #    which would silently substitute generic material defaults)
+    builder.add_conditional_edges(
+        N_MATERIALS,
+        route_after_materials,
+        {
+            "ok":    N_DESIGN,
+            "error": N_ERROR,
+        },
+    )
+    builder.add_edge(N_DESIGN, N_COMPLIANCE)
 
     # ── After Agent 4: conditional routing ────────────────────────────
     builder.add_conditional_edges(

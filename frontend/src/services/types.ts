@@ -44,6 +44,50 @@ export interface Compliance {
   redesign_directives: string[];
 }
 
+export interface Material {
+  material_id: number;
+  name: string;
+  shear_modulus_gpa: number;
+  elastic_modulus_gpa: number;
+  density_kg_m3: number;
+  yield_strength_mpa: number;
+  ultimate_strength_mpa: number;
+  max_temp_c: number;
+  corrosion_resistant: boolean;
+  cost_usd_per_kg: number;
+}
+
+/** Subconjunto de geometría almacenado por opción comercial (dump de SpringGeometry). */
+export interface OptionGeometry {
+  wire_diameter_mm: number;
+  mean_coil_diameter_mm: number;
+  outer_diameter_mm: number;
+  inner_diameter_mm: number;
+  active_coils: number;
+  total_coils: number;
+  free_length_mm: number;
+  pitch_mm: number;
+  spring_index: number;
+  spring_rate_n_mm: number;
+  torsion_moment_n_mm: number | null;
+  angular_deflection_deg: number | null;
+}
+
+/** Una opción de material viable evaluada por Agent 5 (commercial.options). */
+export interface CommercialOption {
+  proposal_id: string;
+  material: Material;
+  geometry: OptionGeometry;
+  /** Los campos de cumplimiento pueden estar ausentes cuando compliance fue None (backend emite {}). */
+  compliance: Partial<Compliance>;
+  wire_mass_kg: number;
+  material_cost_usd: number;
+  estimated_life_cycles: number;
+  composite_score: number;
+  rank: number;
+  is_recommended: boolean;
+}
+
 export interface Proposal {
   proposal_id: string;
   rank: number;
@@ -87,6 +131,8 @@ export interface Report {
   commercial: {
     ranked_proposals: Proposal[];
     chart_data: ChartData[];
+    /** Ausente en reportes generados antes del soporte multi-opción. */
+    options?: CommercialOption[];
   };
   three_js_scene: ThreeJSScene;
   generated_at: string;

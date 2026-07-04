@@ -214,6 +214,11 @@ class AgentState(dict):
     material: MaterialProperties | None
     """Material record selected by Agent 3 via query_material_properties_tool."""
 
+    material_candidates: list[MaterialProperties]
+    """Ranked short-list of candidate materials from Agent 3 (includes the
+    selected material, deduped by material_id). Consumed by Agent 5 to build
+    alternative commercial options."""
+
     compliance: ComplianceReport | None
     """Compliance report produced by Agent 4 via compliance_verification_tool."""
 
@@ -261,6 +266,7 @@ def initial_state(raw_user_input: str, max_iterations: int = 5) -> dict:
         "requirements": None,
         "geometry": None,
         "material": None,
+        "material_candidates": [],
         "compliance": None,
         "redesign_directives": [],
         "min_yield_strength_mpa": None,

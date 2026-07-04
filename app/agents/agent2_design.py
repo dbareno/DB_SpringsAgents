@@ -29,7 +29,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.core.llm_factory import get_factory, rotate_llm_on_quota_error
 from app.schemas.state import AgentState, SpringGeometry
-from app.tools.spring_tools import calculate_spring_geometry_tool
+from app.tools.geometry import calculate_spring_geometry_tool
 
 logger = logging.getLogger(__name__)
 
@@ -233,7 +233,7 @@ def _adjust_and_design(
     En vez de preguntarle al LLM cómo ajustar (que adivina), llamamos
     al advisor tool que computa derivadas analíticas y devuelve Δ% exactos.
     """
-    from app.tools.spring_tools import redesign_advisor_tool
+    from app.tools.geometry import redesign_advisor_tool
 
     compliance = state.get("compliance")
     geometry = state.get("geometry")

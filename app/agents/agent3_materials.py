@@ -30,7 +30,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from app.core.llm_factory import get_factory, rotate_llm_on_quota_error
 from app.schemas.state import AgentState, MaterialProperties
-from app.tools.spring_tools import query_material_properties_tool
+from app.tools.materials import query_material_properties_tool
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,9 @@ _MATERIAL_KEYWORDS: dict[str, str] = {
     "high temp": "__hightemp__",
     "high temperature": "__hightemp__",
 }
+
+# Maximum number of candidates surfaced to Agent 5 (selected + alternatives)
+_MAX_CANDIDATES = 3
 
 _GOAL_BONUS: dict[str, str] = {
     "__cheap__": "The user prioritises low cost.",
@@ -151,6 +154,33 @@ def _format_candidates_table(candidates: list[dict]) -> str:
             f"{c.get('preference_bonus', 1.0):>6.2f}"
         )
     return "\n".join(rows)
+
+
+def _build_candidate_shortlist(
+    candidates: list[dict],
+    selected: MaterialProperties,
+) -> list[MaterialProperties]:
+    """Ranked short-list of candidates for Agent 5 (alternative options).
+
+    Keeps the tool's ranking order, dedupes by material_id and caps at
+    _MAX_CANDIDATES. If the LLM selected a material outside the top ranks,
+    it is promoted to the front so it is always present.
+    """
+    shortlist: list[MaterialProperties] = []
+    seen: set[int] = set()
+    _mp_fields = MaterialProperties.model_fields
+    for c in candidates:
+        if c["material_id"] in seen:
+            continue
+        shortlist.append(MaterialProperties(**{k: v for k, v in c.items() if k in _mp_fields}))
+        seen.add(c["material_id"])
+        if len(shortlist) >= _MAX_CANDIDATES:
+            break
+
+    if selected.material_id not in seen:
+        shortlist = [selected, *shortlist[: _MAX_CANDIDATES - 1]]
+
+    return shortlist
 
 
 def _select_via_llm(
@@ -285,7 +315,11 @@ def materials_engineer_node(state: AgentState) -> dict:
     matching = [c for c in candidates if c["material_id"] == sel_id]
     selected = matching[0] if matching else candidates[0]
 
-    material = MaterialProperties(**selected)
+    _mp_fields = MaterialProperties.model_fields
+    material = MaterialProperties(**{k: v for k, v in selected.items() if k in _mp_fields})
+
+    # ── Ranked short-list for Agent 5 (alternative commercial options) ─────
+    material_candidates = _build_candidate_shortlist(candidates, material)
 
     # ── Build a rich user-facing message ───────────────────────────────────
     lines = [
@@ -334,6 +368,7 @@ def materials_engineer_node(state: AgentState) -> dict:
 
     return {
         "material": material,
+        "material_candidates": material_candidates,
         "current_step": "materials_engineer",
         "messages": [AIMessage(content=message_body)],
     }

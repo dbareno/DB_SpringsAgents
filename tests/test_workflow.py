@@ -15,6 +15,7 @@ import pytest
 from app.schemas.state import (
     AgentState,
     ComplianceReport,
+    MaterialProperties,
     UserRequirements,
     initial_state,
 )
@@ -141,6 +142,7 @@ class TestInitialState:
             "requirements",
             "geometry",
             "material",
+            "material_candidates",
             "compliance",
             "commercial_proposals",
             "llm_status",
@@ -287,6 +289,70 @@ class TestRouteAfterRequirements:
         state = AgentState({
             "current_step": "requirements_analyst_failed",
             "requirements": None,
+        })
+        result = router(state)
+        assert result == "error"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Route after materials
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestRouteAfterMaterials:
+    """Tests para route_after_materials()."""
+
+    @pytest.fixture
+    def router(self):
+        """Importa la funcion de ruteo."""
+        from app.agents.agent6_orchestrator import route_after_materials
+
+        return route_after_materials
+
+    def test_material_selected_returns_ok(self, router) -> None:
+        """
+        Verifica que cuando Agent 3 selecciona un material, la ruta
+        retorna 'ok' → design engineer.
+        """
+        material = MaterialProperties(
+            material_id=1,
+            name="ASTM A228 Music Wire",
+            shear_modulus_gpa=81.5,
+            elastic_modulus_gpa=207.0,
+            density_kg_m3=7850,
+            yield_strength_mpa=1580,
+            ultimate_strength_mpa=1900,
+            max_temp_c=120,
+            corrosion_resistant=False,
+            cost_usd_per_kg=3.80,
+        )
+        state = AgentState({
+            "current_step": "materials_engineer",
+            "material": material,
+        })
+        result = router(state)
+        assert result == "ok"
+
+    def test_failed_step_returns_error(self, router) -> None:
+        """
+        Verifica que cuando current_step contiene 'failed' (p.ej.
+        NoMaterialMatch), la ruta retorna 'error' SIN pasar por Agent 2.
+        """
+        state = AgentState({
+            "current_step": "materials_engineer_failed",
+            "material": None,
+        })
+        result = router(state)
+        assert result == "error"
+
+    def test_missing_material_returns_error(self, router) -> None:
+        """
+        Verifica que cuando material es None (incluso sin 'failed' en el
+        step), la ruta retorna 'error' como red de seguridad.
+        """
+        state = AgentState({
+            "current_step": "materials_engineer",
+            "material": None,
         })
         result = router(state)
         assert result == "error"

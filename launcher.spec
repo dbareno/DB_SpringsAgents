@@ -7,10 +7,30 @@ from pathlib import Path
 # SPEC is the spec file path, provided by PyInstaller in the exec namespace
 PROJECT_ROOT = Path(SPEC).parent
 
+# ── Required DLLs from Anaconda's Library/bin ──────────────────────────
+# _ssl.pyd, _hashlib.pyd, _lzma.pyd, _bz2.pyd, _ctypes.pyd, pyexpat.pyd,
+# _sqlite3.pyd all depend on these — they MUST be bundled INSIDE the exe
+# so they are extractable alongside the .pyd files in sys._MEIPASS.
+_ANACONDA_BIN = Path(r"C:\Users\Diego\anaconda3\Library\bin")
+_REQUIRED_DLLS = [
+    "libcrypto-3-x64.dll",
+    "libssl-3-x64.dll",
+    "liblzma.dll",
+    "libbz2.dll",
+    "ffi.dll",
+    "libexpat.dll",
+    "sqlite3.dll",
+]
+_dll_binaries = []
+for _dll in _REQUIRED_DLLS:
+    _src = _ANACONDA_BIN / _dll
+    if _src.is_file():
+        _dll_binaries.append((str(_src), "."))
+
 a = Analysis(
     [str(PROJECT_ROOT / "scripts" / "launcher.py")],
     pathex=[str(PROJECT_ROOT)],
-    binaries=[],
+    binaries=_dll_binaries,
     datas=[
         # Include the frontend static build
         (str(PROJECT_ROOT / "frontend" / "out"), "frontend/out"),
@@ -44,7 +64,7 @@ a = Analysis(
     ],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[str(PROJECT_ROOT / "_rt_hook.py")],
     excludes=[
         "tkinter",
         "PyQt5",
@@ -61,8 +81,6 @@ a = Analysis(
         "tornado",
         "zmq",
         "cv2",
-        "PIL",
-        "Pillow",
         "gevent",
         "dask",
     ],

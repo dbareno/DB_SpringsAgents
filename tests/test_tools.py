@@ -11,12 +11,10 @@ import json
 
 import pytest
 
-from app.tools.spring_tools import (
-    calculate_spring_geometry_tool,
-    commercial_scoring_tool,
-    compliance_verification_tool,
-    query_material_properties_tool,
-)
+from app.tools.commercial import commercial_scoring_tool
+from app.tools.compliance import compliance_verification_tool
+from app.tools.geometry import calculate_spring_geometry_tool
+from app.tools.materials import query_material_properties_tool
 
 
 class TestGeometryTool:
