@@ -1155,7 +1155,7 @@ class TestAgent5Commercial:
         )
 
     def _mock_commercial_tool(self) -> None:
-        """Configura el mock de scoring tool con datos controlados."""
+        """Configura el mock de scoring tool con datos controlados (Phase 5: with tiers)."""
         self._mock_tool.invoke.return_value = json.dumps({
             "status": "ok",
             "ranked_proposals": [
@@ -1165,6 +1165,15 @@ class TestAgent5Commercial:
                     "composite_score": 0.85,
                     "wire_mass_kg": 0.012,
                     "material_cost_usd": 0.0456,
+                    "manufacturing_usd": 0.0924,
+                    "total_cost_usd": 0.1380,
+                    "total_unit_cost_usd": 0.1380,
+                    "margin_percent": 25.0,
+                    "price_tiers": [
+                        {"qty_min": 1, "qty_max": 10, "qty_example": 1, "unit_price_usd": 0.1725, "tier_name": "Prototype (1-10)"},
+                        {"qty_min": 11, "qty_max": 100, "qty_example": 11, "unit_price_usd": 0.1614, "tier_name": "Small Batch (11-100)"},
+                        {"qty_min": 101, "qty_max": None, "qty_example": 101, "unit_price_usd": 0.1541, "tier_name": "Production (101+)"},
+                    ],
                     "estimated_life_cycles": 1_050_000,
                     "three_js_params": {
                         "wireRadius": 1.75,
@@ -1182,12 +1191,23 @@ class TestAgent5Commercial:
                     "rank": 1,
                     "composite_score": 0.85,
                     "material_cost_usd": 0.0456,
+                    "manufacturing_usd": 0.0924,
+                    "total_cost_usd": 0.1380,
                     "estimated_life_cycles": 1_050_000,
                     "safety_factor_shear": 2.1,
                     "safety_factor_buckling": 1.8,
                     "wire_mass_kg": 0.012,
                 },
             ],
+            "cost_parameters": {
+                "setup_cost_usd": 250.0,
+                "margin_percent": 25.0,
+                "tier_definitions": [
+                    {"min_qty": 1, "max_qty": 10, "name": "Prototype (1-10)"},
+                    {"min_qty": 11, "max_qty": 100, "name": "Small Batch (11-100)"},
+                    {"min_qty": 101, "max_qty": None, "name": "Production (101+)"},
+                ],
+            },
         })
 
     def test_valid_state_returns_proposals(self) -> None:
@@ -1398,7 +1418,7 @@ class TestAgent5Commercial:
         })
 
     def _mock_commercial_tool_multi(self) -> None:
-        """Mock de scoring con 2 propuestas: P002 gana el score (rank 1)."""
+        """Mock de scoring con 2 propuestas: P002 gana el score (rank 1). Phase 5: with tiers."""
         three_js = {
             "wireRadius": 1.75,
             "coilRadius": 14.0,
@@ -1407,6 +1427,11 @@ class TestAgent5Commercial:
             "tubeSegments": 64,
             "radialSegments": 16,
         }
+        tiers = [
+            {"qty_min": 1, "qty_max": 10, "qty_example": 1, "unit_price_usd": 0.1725, "tier_name": "Prototype (1-10)"},
+            {"qty_min": 11, "qty_max": 100, "qty_example": 11, "unit_price_usd": 0.1614, "tier_name": "Small Batch (11-100)"},
+            {"qty_min": 101, "qty_max": None, "qty_example": 101, "unit_price_usd": 0.1541, "tier_name": "Production (101+)"},
+        ]
         self._mock_tool.invoke.return_value = json.dumps({
             "status": "ok",
             "ranked_proposals": [
@@ -1416,6 +1441,11 @@ class TestAgent5Commercial:
                     "composite_score": 0.91,
                     "wire_mass_kg": 0.010,
                     "material_cost_usd": 0.0560,
+                    "manufacturing_usd": 0.0832,
+                    "total_cost_usd": 0.1392,
+                    "total_unit_cost_usd": 0.1392,
+                    "margin_percent": 25.0,
+                    "price_tiers": tiers,
                     "estimated_life_cycles": 950_000,
                     "three_js_params": three_js,
                 },
@@ -1425,6 +1455,11 @@ class TestAgent5Commercial:
                     "composite_score": 0.85,
                     "wire_mass_kg": 0.012,
                     "material_cost_usd": 0.0456,
+                    "manufacturing_usd": 0.0924,
+                    "total_cost_usd": 0.1380,
+                    "total_unit_cost_usd": 0.1380,
+                    "margin_percent": 25.0,
+                    "price_tiers": tiers,
                     "estimated_life_cycles": 1_050_000,
                     "three_js_params": three_js,
                 },
@@ -1435,6 +1470,8 @@ class TestAgent5Commercial:
                     "rank": 1,
                     "composite_score": 0.91,
                     "material_cost_usd": 0.0560,
+                    "manufacturing_usd": 0.0832,
+                    "total_cost_usd": 0.1392,
                     "estimated_life_cycles": 950_000,
                     "safety_factor_shear": 1.9,
                     "safety_factor_buckling": 1.6,
@@ -1445,12 +1482,23 @@ class TestAgent5Commercial:
                     "rank": 2,
                     "composite_score": 0.85,
                     "material_cost_usd": 0.0456,
+                    "manufacturing_usd": 0.0924,
+                    "total_cost_usd": 0.1380,
                     "estimated_life_cycles": 1_050_000,
                     "safety_factor_shear": 2.1,
                     "safety_factor_buckling": 1.8,
                     "wire_mass_kg": 0.012,
                 },
             ],
+            "cost_parameters": {
+                "setup_cost_usd": 250.0,
+                "margin_percent": 25.0,
+                "tier_definitions": [
+                    {"min_qty": 1, "max_qty": 10, "name": "Prototype (1-10)"},
+                    {"min_qty": 11, "max_qty": 100, "name": "Small Batch (11-100)"},
+                    {"min_qty": 101, "max_qty": None, "name": "Production (101+)"},
+                ],
+            },
         })
 
     def _make_multi_state(

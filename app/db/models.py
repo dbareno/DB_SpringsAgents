@@ -86,6 +86,10 @@ class DesignProject(Base):
         comment="pending | needs_clarification | approved | error | iteration_limit",
     )
     final_report: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    quote_snapshot: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True,
+        comment="Cost parameters (setup_cost, margin, tiers) used at quote generation time for reproducibility"
+    )
     total_iterations: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow
@@ -136,4 +140,57 @@ class DesignIteration(Base):
         return (
             f"<DesignIteration project={self.project_id} "
             f"iter={self.iteration_number} approved={self.approved}>"
+        )
+
+
+class CommercialSettings(Base):
+    """
+    Admin-configurable cost model parameters for quotation.
+
+    Defines:
+    - Base setup/NRE cost amortized across lot size
+    - Target margin percentage applied to unit cost
+    - Price tier thresholds and their quantity breaks
+
+    One row per "active" configuration; defaults provided at system startup.
+    """
+
+    __tablename__ = "commercial_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="default",
+        comment="Configuration name; 'default' is used if not specified"
+    )
+    setup_cost_usd: Mapped[float] = mapped_column(
+        Float, nullable=False, default=250.0,
+        comment="Fixed engineering + NRE cost per order (amortized by lot size)"
+    )
+    margin_percent: Mapped[float] = mapped_column(
+        Float, nullable=False, default=25.0,
+        comment="Target profit margin as percentage (0-100)"
+    )
+    # Tier definitions: stored as JSON for flexibility
+    # Format: [{"min_qty": 1, "max_qty": 10, "name": "Prototype"},
+    #          {"min_qty": 11, "max_qty": 100, "name": "Small"},
+    #          {"min_qty": 101, "max_qty": null, "name": "Production"}]
+    tier_definitions: Mapped[list | None] = mapped_column(
+        JSON, nullable=True,
+        comment="List of qty tiers with min/max boundaries and display names"
+    )
+    active: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False,
+        comment="Only active=True configs are used in quotation"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<CommercialSettings id={self.id} name={self.name!r} "
+            f"margin={self.margin_percent}% setup=${self.setup_cost_usd}>"
         )

@@ -105,7 +105,7 @@ def commercial_optimiser_node(state: AgentState) -> dict:
     ranked = result["ranked_proposals"]
     chart_data = result["chart_data"]
 
-    # Convert to CommercialScore objects
+    # Convert to CommercialScore objects (Phase 5: include tier pricing)
     scores = [
         CommercialScore(
             proposal_id=r["proposal_id"],
@@ -114,6 +114,10 @@ def commercial_optimiser_node(state: AgentState) -> dict:
             estimated_life_cycles=r["estimated_life_cycles"],
             composite_score=r["composite_score"],
             rank=r["rank"],
+            manufacturing_usd=r.get("manufacturing_usd", 0.0),
+            total_unit_cost_usd=r.get("total_unit_cost_usd", r["total_cost_usd"]),
+            margin_percent=r.get("margin_percent", 0.0),
+            price_tiers=r.get("price_tiers", []),
         )
         for r in ranked
     ]
@@ -142,6 +146,8 @@ def commercial_optimiser_node(state: AgentState) -> dict:
             )
 
     # ── Assemble final report ──────────────────────────────────────────────
+    # Phase 5: Include cost parameters used at quote generation time
+    cost_params = result.get("cost_parameters", {})
     final_report = {
         "status": "approved",
         "summary": {
@@ -157,6 +163,7 @@ def commercial_optimiser_node(state: AgentState) -> dict:
             "ranked_proposals": ranked,
             "chart_data": chart_data,
             "options": options,
+            "cost_parameters": cost_params,
         },
         "three_js_scene": {
             "spring": ranked[0]["three_js_params"] if ranked else {},

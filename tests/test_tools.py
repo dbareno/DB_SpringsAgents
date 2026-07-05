@@ -205,3 +205,139 @@ class TestCommercialTool:
         ranked = result["ranked_proposals"]
         # Cheaper proposal should rank higher (better cost score)
         assert ranked[0]["proposal_id"] == "P002"
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Phase 5: Lot Amortization, Margin, and Price Tiers
+    # ──────────────────────────────────────────────────────────────────────
+
+    def test_default_parameters_backward_compatibility(self):
+        """Regression: default settings (0% margin, $0 setup) reproduce pre-Phase-5 cost."""
+        proposals = json.dumps([self._make_proposal()])
+        # Call with explicit defaults: 0% margin, $0 setup
+        result = json.loads(commercial_scoring_tool.invoke({
+            "proposals": proposals,
+            "margin_percent": 0.0,
+            "setup_cost_usd": 0.0,
+        }))
+        assert result["status"] == "ok"
+        ranked = result["ranked_proposals"]
+        assert len(ranked) == 1
+        r = ranked[0]
+
+        # With 0% margin and $0 setup, total_unit_cost should equal material + manufacturing
+        # For the test proposal: material ~0.159, manufacturing ~0.2406
+        actual_unit_cost = r["total_unit_cost_usd"]
+        # Should be approximately 0.3996
+        assert actual_unit_cost == pytest.approx(0.3996, rel=0.01)
+
+    def test_pricing_tiers_structure(self):
+        """Verify pricing tiers are computed and returned in ranked proposals."""
+        proposals = json.dumps([self._make_proposal()])
+        result = json.loads(commercial_scoring_tool.invoke({
+            "proposals": proposals,
+            "margin_percent": 25.0,
+            "setup_cost_usd": 250.0,
+        }))
+        assert result["status"] == "ok"
+        ranked = result["ranked_proposals"]
+        assert len(ranked) == 1
+        r = ranked[0]
+
+        # Check tiers exist and have required fields
+        assert "price_tiers" in r
+        assert len(r["price_tiers"]) >= 3  # At least 3 tiers
+        for tier in r["price_tiers"]:
+            assert "qty_min" in tier
+            assert "qty_max" in tier
+            assert "unit_price_usd" in tier
+            assert "tier_name" in tier
+            assert tier["unit_price_usd"] > 0
+
+    def test_lot_amortization_decreases_price(self):
+        """Verify larger qty tiers have lower unit prices due to setup amortization."""
+        proposals = json.dumps([self._make_proposal()])
+        result = json.loads(commercial_scoring_tool.invoke({
+            "proposals": proposals,
+            "margin_percent": 25.0,
+            "setup_cost_usd": 250.0,
+        }))
+        assert result["status"] == "ok"
+        ranked = result["ranked_proposals"]
+        r = ranked[0]
+        tiers = r["price_tiers"]
+
+        # Tiers should be in ascending order by qty_min
+        assert tiers[0]["qty_min"] < tiers[1]["qty_min"]
+        if len(tiers) > 2:
+            assert tiers[1]["qty_min"] < tiers[2]["qty_min"]
+
+        # Price should decrease as quantity increases (setup amortized)
+        assert tiers[0]["unit_price_usd"] > tiers[1]["unit_price_usd"]
+        if len(tiers) > 2:
+            assert tiers[1]["unit_price_usd"] > tiers[2]["unit_price_usd"]
+
+    def test_margin_applies_to_unit_price(self):
+        """Verify margin % is correctly applied to unit price."""
+        proposals = json.dumps([self._make_proposal()])
+
+        # Get result with 0% margin
+        result_0 = json.loads(commercial_scoring_tool.invoke({
+            "proposals": proposals,
+            "margin_percent": 0.0,
+            "setup_cost_usd": 100.0,
+        }))
+        price_0pct = result_0["ranked_proposals"][0]["price_tiers"][0]["unit_price_usd"]
+
+        # Get result with 25% margin
+        result_25 = json.loads(commercial_scoring_tool.invoke({
+            "proposals": proposals,
+            "margin_percent": 25.0,
+            "setup_cost_usd": 100.0,
+        }))
+        price_25pct = result_25["ranked_proposals"][0]["price_tiers"][0]["unit_price_usd"]
+
+        # With 25% margin: price = cost * (1 + 0.25) = cost * 1.25
+        expected_ratio = 1.25
+        actual_ratio = price_25pct / price_0pct
+        assert actual_ratio == pytest.approx(expected_ratio, rel=0.01)
+
+    def test_cost_parameters_in_result(self):
+        """Verify cost_parameters are returned in the result."""
+        proposals = json.dumps([self._make_proposal()])
+        margin = 20.0
+        setup = 300.0
+        result = json.loads(commercial_scoring_tool.invoke({
+            "proposals": proposals,
+            "margin_percent": margin,
+            "setup_cost_usd": setup,
+        }))
+        assert result["status"] == "ok"
+        assert "cost_parameters" in result
+        params = result["cost_parameters"]
+        assert params["setup_cost_usd"] == setup
+        assert params["margin_percent"] == margin
+        assert "tier_definitions" in params
+
+    def test_multiple_proposals_have_consistent_tiers(self):
+        """Verify all proposals use the same tier structure."""
+        p1 = self._make_proposal("P001")
+        p2 = {**self._make_proposal("P002"), "cost_usd_per_kg": 1.0}
+        proposals = json.dumps([p1, p2])
+        result = json.loads(commercial_scoring_tool.invoke({
+            "proposals": proposals,
+            "margin_percent": 25.0,
+            "setup_cost_usd": 250.0,
+        }))
+        assert result["status"] == "ok"
+        ranked = result["ranked_proposals"]
+        assert len(ranked) == 2
+
+        # Both proposals should have the same tier structure (qty boundaries)
+        tiers_1 = ranked[0]["price_tiers"]
+        tiers_2 = ranked[1]["price_tiers"]
+        assert len(tiers_1) == len(tiers_2)
+        for t1, t2 in zip(tiers_1, tiers_2):
+            assert t1["qty_min"] == t2["qty_min"]
+            assert t1["qty_max"] == t2["qty_max"]
+            # But prices differ due to different material costs
+            assert t1["unit_price_usd"] != t2["unit_price_usd"]

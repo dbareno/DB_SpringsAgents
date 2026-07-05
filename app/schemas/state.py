@@ -156,6 +156,21 @@ class CommercialScore(BaseModel):
         ..., description="Weighted index (higher = more cost-effective + durable)"
     )
     rank: int
+    # Phase 5: Lot amortization and pricing tiers
+    manufacturing_usd: float = Field(
+        ..., description="Manufacturing operations cost per spring (winding, heat treat, peening)"
+    )
+    total_unit_cost_usd: float = Field(
+        ..., description="Total unit cost before margin: material + manufacturing + amortized setup"
+    )
+    margin_percent: float = Field(
+        ..., description="Applied margin percentage (e.g., 25.0)"
+    )
+    # Per-tier pricing: list of dicts with {qty_min, qty_max, unit_price_usd, tier_name}
+    price_tiers: list[dict] = Field(
+        default_factory=list,
+        description="List of pricing tiers by quantity bracket"
+    )
 
 
 class LLMProviderStatus(BaseModel):
