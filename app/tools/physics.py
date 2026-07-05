@@ -46,6 +46,65 @@ def _wahl_correction(C: float) -> float:
     return (4 * C - 1) / (4 * C - 4) + 0.615 / C
 
 
+def _bending_correction(C: float) -> float:
+    """
+    Bergsträsser bending stress-correction factor Kb for curved-beam bending
+    (used for extension-spring hook stress and torsion-spring arm stress).
+
+    Kb = (4C² - C - 1) / (4C(C - 1))   [Shigley, curved beam in bending]
+    """
+    return (4 * C**2 - C - 1) / (4 * C * (C - 1))
+
+
+def _torsion_correction(C: float) -> float:
+    """
+    Curved-beam torsional (shear) stress-correction factor Kw for a curved
+    section under torsion — same form as the Wahl factor but applied to a
+    different local radius ratio (e.g. hook bend radius at point B).
+
+    Kw = (4C - 1) / (4C - 4)   [Shigley, curved beam in torsion]
+    """
+    return (4 * C - 1) / (4 * C - 4)
+
+
+def _hook_bending_stress(F: float, d: float, D: float, Kb: float) -> float:
+    """
+    Extension-spring hook bending stress at point A [Shigley eq. 10-33]:
+
+        σ_A = F · [Kb · 16D/(πd³) + 4/(πd²)]
+    """
+    return F * (Kb * 16.0 * D / (math.pi * d**3) + 4.0 / (math.pi * d**2))
+
+
+def _hook_torsion_stress(F: float, d: float, D: float, Kw: float) -> float:
+    """
+    Extension-spring hook torsional shear stress at point B [Shigley eq. 10-34]:
+
+        τ_B = Kw · 8FD / (πd³)
+    """
+    return Kw * 8.0 * F * D / (math.pi * d**3)
+
+
+def _arm_bending_stress(M: float, d: float, Kb: float) -> float:
+    """
+    Torsion-spring arm bending stress at the coil-arm junction [Shigley eq.
+    10-38, adapted]:
+
+        σ = Kb · 32M / (πd³)
+    """
+    return Kb * 32.0 * M / (math.pi * d**3)
+
+
+def _coil_torsion_stress(M: float, d: float) -> float:
+    """
+    Torsion-spring secondary coil shear stress from the applied moment
+    (uncorrected torsional shear on the wire cross-section):
+
+        τ = 16M / (πd³)
+    """
+    return 16.0 * M / (math.pi * d**3)
+
+
 def _spring_rate(d: float, D: float, n_a: float, G_n_mm2: float) -> float:
     """Helical spring rate k = G*d⁴ / (8*D³*n_a)  [N/mm]."""
     return (G_n_mm2 * d**4) / (8.0 * D**3 * n_a)
