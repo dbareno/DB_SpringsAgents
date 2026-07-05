@@ -69,6 +69,12 @@ a = Analysis(
         "asyncpg",
         "langgraph",
         "langchain_core",
+        # Multi-turn conversation checkpointer (Phase 3) — separate pip
+        # package (langgraph-checkpoint-sqlite), PyInstaller's static
+        # import graph analysis can miss it since it's resolved dynamically
+        # via app.core.checkpointer's runtime import.
+        "langgraph.checkpoint.sqlite",
+        "langgraph.checkpoint.sqlite.aio",
         "scipy",
         "scipy.optimize",
         "numpy",

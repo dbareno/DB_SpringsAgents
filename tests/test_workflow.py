@@ -151,6 +151,8 @@ class TestInitialState:
             "_raw_input",
             "redesign_directives",
             "min_yield_strength_mpa",
+            "interrupted",
+            "session_answers",
         }
         assert set(state.keys()) == expected_keys
 

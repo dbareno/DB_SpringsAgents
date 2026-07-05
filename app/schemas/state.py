@@ -246,6 +246,20 @@ class AgentState(dict):
     final_report: dict[str, Any] | None
     """Assembled final JSON report ready for the API response and frontend."""
 
+    # ── Multi-turn conversation (Phase 3) ──────────────────────────────────────
+    interrupted: bool
+    """True while the graph is paused at an ``interrupt()`` boundary awaiting
+    user input (set by ``requirements_analyst_node``, cleared once requirements
+    are complete). Lets callers distinguish "waiting on a checkpoint" from a
+    normal terminal state without inspecting node names."""
+
+    session_answers: dict[str, str]
+    """Accumulates clarification answers across turns, keyed by the question
+    they answer. Populated by the resume path in ``DesignService.clarify_design``
+    and merged into ``requirements`` extraction on each re-entry into
+    ``requirements_analyst_node`` — replaces the old concatenate-and-rerun
+    text-splicing approach."""
+
 
 def initial_state(raw_user_input: str, max_iterations: int = 5) -> dict:
     """
@@ -277,4 +291,6 @@ def initial_state(raw_user_input: str, max_iterations: int = 5) -> dict:
         # Inject the raw input as the first human message so that Agent 1 can
         # pick it up from the message history without needing a separate field.
         "_raw_input": raw_user_input,
+        "interrupted": False,
+        "session_answers": {},
     }

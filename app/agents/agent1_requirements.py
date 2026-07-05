@@ -27,11 +27,53 @@ import re
 from datetime import datetime, timezone
 
 from langchain_core.messages import HumanMessage, SystemMessage
+from langgraph.types import interrupt
 
 from app.core.llm_factory import get_factory, rotate_llm_on_quota_error
 from app.schemas.state import AgentState, SpringType, UserRequirements
 
 logger = logging.getLogger(__name__)
+
+# ── Clarification label mapping (moved from design_service's old ────────────
+# concatenate-and-rerun path — the label helps the LLM parse free-text answers
+# without depending on a rigid Q&A transcript format).
+_CLARIFICATION_LABELS: list[tuple[str, str]] = [
+    ("cíclica", "Cyclic load"),
+    ("fatiga", "Cyclic load"),
+    ("estática", "Cyclic load"),
+    ("repetitivo", "Cyclic load"),
+    ("ciclos de vida", "Cycles expected"),
+    ("ciclos esperados", "Cycles expected"),
+    ("compresión", "Spring type"),
+    ("tracción", "Spring type"),
+    ("torsión", "Spring type"),
+    ("tipo de resorte", "Spring type"),
+    ("spring type", "Spring type"),
+    ("diámetro exterior", "Max outer diameter"),
+    ("outer diameter", "Max outer diameter"),
+    ("longitud libre", "Max free length"),
+    ("free length", "Max free length"),
+    ("temperatura", "Operating temperature"),
+    ("temperature", "Operating temperature"),
+    ("operating temp", "Operating temperature"),
+    ("corrosivo", "Corrosion resistant"),
+    ("corrosión", "Corrosion resistant"),
+    ("deflexión", "Deflection"),
+    ("deflection", "Deflection"),
+    ("newton", "Load force"),
+    ("newtons", "Load force"),
+    ("fuerza", "Load force"),
+    ("carga", "Load force"),
+]
+
+
+def _label_for_question(question: str) -> str:
+    """Map a clarification question to a short explicit label."""
+    lowered = question.lower()
+    for keyword, label in _CLARIFICATION_LABELS:
+        if keyword in lowered:
+            return label
+    return "Specification"
 
 _SYSTEM_PROMPT = """You are a requirements analyst for spring design.
 Extract ALL spring design parameters from the text below into the EXACT JSON field names provided.
@@ -486,15 +528,120 @@ def requirements_analyst_node(state: AgentState) -> dict:
     logger.info("[Agent 1] raw_input length=%d, starts_with=%s",
                 len(raw_input), repr(raw_input[:80]))
 
-    messages = [
-        SystemMessage(content=_SYSTEM_PROMPT),
-        HumanMessage(content=raw_input),
-    ]
-
+    session_answers: dict[str, str] = dict(state.get("session_answers", {}))
     max_attempts = len(factory._priority_order) + 1
+    base_raw_input = state.get("_raw_input", raw_input)
+
+    # ── Multi-turn conversation (Phase 3) ───────────────────────────────────
+    # LangGraph replays a node's ENTIRE function body from the top on every
+    # resume — there is no way to "skip ahead" past earlier code. Each
+    # ``interrupt()`` call that has ALREADY been resumed once simply returns
+    # its resume value without re-pausing; only a call site reached for the
+    # FIRST time (fresh, not-yet-resumed) actually pauses the graph. So a
+    # loop with ONE interrupt() call per round, resumed via
+    # ``Command(resume=answers)``, is the correct — and LangGraph's
+    # officially documented — pattern for asking several sequential
+    # follow-up questions within a single node: round 0's interrupt resumes
+    # immediately (returning the round-0 answer) and round 1's interrupt
+    # actually pauses (it has never been reached before), and so on.
+    #
+    # Cost trade-off: every resume REPLAYS all already-answered rounds'
+    # LLM calls too (they resume immediately without pausing) — this is
+    # inherent to LangGraph's interrupt model, not a bug. Bounded by
+    # ``max_rounds`` to cap worst-case replay cost and prevent infinite
+    # clarification loops.
+    max_rounds = 5
+    for _round in range(max_rounds):
+        if session_answers:
+            labeled = [
+                f"{_label_for_question(q)}: {a}"
+                for q, a in session_answers.items()
+                if a
+            ]
+            raw_input = (
+                f"{base_raw_input}\n\n"
+                f"--- Additional specifications provided ---\n"
+                + "\n".join(f"  - {line}" for line in labeled)
+            )
+
+        messages = [
+            SystemMessage(content=_SYSTEM_PROMPT),
+            HumanMessage(content=raw_input),
+        ]
+        requirements, response, error_result = _extract_requirements(
+            factory=factory,
+            messages=messages,
+            raw_input=raw_input,
+            max_attempts=max_attempts,
+            state=state,
+        )
+        if error_result is not None:
+            return error_result
+
+        logger.info(
+            "[Agent 1] Extraction complete (round %d). is_complete=%s, spring_type=%s, questions=%d",
+            _round,
+            requirements.is_complete,
+            requirements.spring_type,
+            len(requirements.clarification_questions),
+        )
+
+        if requirements.is_complete:
+            return {
+                "requirements": requirements,
+                "current_step": "requirements_analyst",
+                "messages": [response],
+                "interrupted": False,
+                "session_answers": session_answers,
+            }
+
+        # ── Requirements incomplete: PAUSE the graph at this exact point
+        # instead of returning a terminal "needs_clarification" state.
+        # ``interrupt()`` raises GraphInterrupt (surfacing `questions` to
+        # the caller) on first reach; once the caller resumes via
+        # ``Command(resume=answers)``, THIS specific call returns
+        # `answers` directly (no graph replay from START needed).
+        for qi, q in enumerate(requirements.clarification_questions, 1):
+            logger.info("[Agent 1]   Q%d: %s", qi, q)
+
+        answers = interrupt(
+            {
+                "type": "clarification_needed",
+                "questions": requirements.clarification_questions,
+                "partial_requirements": requirements.model_dump(),
+            }
+        )
+        answers = answers if isinstance(answers, dict) else {}
+        session_answers = {**session_answers, **answers}
+        logger.info(
+            "[Agent 1] Resumed (round %d) with %d accumulated answer(s).",
+            _round,
+            len(session_answers),
+        )
+
+    return _build_error(
+        state, "ClarificationRoundLimit", f"Exceeded {max_rounds} clarification rounds."
+    )
+
+
+def _extract_requirements(
+    factory: object,
+    messages: list,
+    raw_input: str,
+    max_attempts: int,
+    state: AgentState,
+) -> tuple[UserRequirements | None, object, dict | None]:
+    """
+    Run the LLM extraction + programmatic completeness check for ONE
+    conversation round, retrying across LLM providers on quota errors.
+
+    Returns ``(requirements, response, None)`` on success, or
+    ``(None, None, error_dict)`` if all providers/attempts were exhausted —
+    callers should return ``error_dict`` directly from the node.
+    """
     for attempt in range(max_attempts):
         try:
-            llm = factory.get_llm()
+            llm = factory.get_llm()  # type: ignore[attr-defined]
             response = llm.invoke(messages)
             raw_json = response.content.strip()
 
@@ -511,28 +658,15 @@ def requirements_analyst_node(state: AgentState) -> dict:
             data["clarification_questions"] = questions
 
             requirements = UserRequirements(raw_input=raw_input, **data)
-
-            logger.info(
-                "[Agent 1] Extraction complete. is_complete=%s, spring_type=%s, questions=%d",
-                requirements.is_complete,
-                requirements.spring_type,
-                len(requirements.clarification_questions),
-            )
-            if requirements.clarification_questions:
-                for qi, q in enumerate(requirements.clarification_questions, 1):
-                    logger.info("[Agent 1]   Q%d: %s", qi, q)
-
-            return {
-                "requirements": requirements,
-                "current_step": "requirements_analyst",
-                "messages": [response],
-            }
+            return requirements, response, None
 
         except json.JSONDecodeError:
             logger.error("[Agent 1] LLM returned invalid JSON on attempt %d/%d", attempt + 1, max_attempts)
             if attempt < max_attempts - 1:
                 continue
-            return _build_error(state, "InvalidJSON", "LLM returned invalid JSON after all attempts")
+            return None, None, _build_error(
+                state, "InvalidJSON", "LLM returned invalid JSON after all attempts"
+            )
 
         except Exception as exc:
             try:
@@ -540,7 +674,9 @@ def requirements_analyst_node(state: AgentState) -> dict:
                 logger.warning("[Agent 1] Rotated LLM after error: %s", exc)
                 continue
             except RuntimeError as all_exhausted:
-                return _build_error(state, type(exc).__name__, str(all_exhausted))
+                return None, None, _build_error(
+                    state, type(exc).__name__, str(all_exhausted)
+                )
             except Exception as non_quota_error:
                 logger.warning(
                     "[Agent 1] Non-quota error on attempt %d/%d: %s",
@@ -550,7 +686,14 @@ def requirements_analyst_node(state: AgentState) -> dict:
                     if hasattr(factory, 'next_provider'):
                         factory.next_provider()
                     continue
-                return _build_error(state, type(non_quota_error).__name__, str(non_quota_error))
+                return None, None, _build_error(
+                    state, type(non_quota_error).__name__, str(non_quota_error)
+                )
+
+    # Defensive fallback — should be unreachable (loop always returns).
+    return None, None, _build_error(
+        state, "ExhaustedAttempts", "LLM extraction failed after all retry attempts."
+    )
 
 
 def _build_error(state: AgentState, error_type: str, message: str) -> dict:

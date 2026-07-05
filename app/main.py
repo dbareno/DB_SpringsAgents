@@ -75,7 +75,32 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception:
         logger.exception("Standards ingestion failed — continuing startup anyway.")
 
+    # Open the LangGraph checkpointer (Phase 3 — multi-turn conversation).
+    # Opened eagerly at startup (not lazily on first design request) so a
+    # broken writable-path in the frozen .exe fails fast and loud at boot,
+    # rather than silently on the first clarification round.
+    try:
+        from app.core.checkpointer import get_checkpointer
+
+        await get_checkpointer()
+        logger.info("LangGraph checkpointer ready.")
+    except Exception:
+        logger.exception(
+            "Checkpointer initialization failed — multi-turn conversation "
+            "will not work, but the app continues (single-shot design runs "
+            "that never hit a clarification are unaffected)."
+        )
+
     yield
+
+    # Release the checkpointer's SQLite connection cleanly on shutdown.
+    try:
+        from app.core.checkpointer import close_checkpointer
+
+        await close_checkpointer()
+    except Exception:
+        logger.exception("Checkpointer shutdown failed.")
+
     logger.info("=== Spring Design Agent API shutting down ===")
 
 

@@ -12,6 +12,10 @@ python-multipart>=0.0.9   # required for FastAPI UploadFile / form-data (CSV imp
 langchain>=0.3.0
 langchain-core>=0.3.0
 langgraph>=0.2.0
+# Multi-turn conversation checkpointer (Phase 3): persists graph state across
+# interrupt()/resume turns. aiosqlite (the actual DB driver) is already a
+# transitive dependency via SQLAlchemy's async engine — safe to freeze.
+langgraph-checkpoint-sqlite>=2.0.0
 
 # ── LLM Provider integrations (install only what you need) ────────────────
 langchain-google-genai>=2.0.0      # Gemini

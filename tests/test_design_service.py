@@ -5,6 +5,12 @@ Unit tests for the DesignService layer.
 
 The LangGraph graph invocation is mocked — these tests verify the
 orchestration logic, not the graph itself.
+
+Phase 3: the service now drives the graph via ``get_design_graph()`` +
+``astream(..., stream_mode="values")`` (checkpointed, supports interrupt /
+resume) instead of the old synchronous ``spring_design_graph.invoke()``. Tests
+patch ``app.services.design_service.get_design_graph`` and provide an async
+generator on ``.astream`` to match the new call shape.
 """
 
 from __future__ import annotations
@@ -16,6 +22,30 @@ from fastapi import HTTPException
 
 from app.db.models import DesignProject
 from app.schemas.design import DesignResponse
+
+
+def _make_mock_graph(*state_events: dict) -> AsyncMock:
+    """
+    Build a mock compiled graph whose ``astream(..., stream_mode="values")``
+    yields each of ``state_events`` in order (mirrors what
+    ``DesignService._stream_graph`` consumes).
+    """
+
+    async def _astream(*_args, **_kwargs):
+        for event in state_events:
+            yield event
+
+    mock_graph = MagicMock()
+    mock_graph.astream = _astream
+    return mock_graph
+
+
+def _patch_get_design_graph(mock_graph: MagicMock):
+    """Patch ``get_design_graph`` (an async factory) to resolve to ``mock_graph``."""
+    return patch(
+        "app.services.design_service.get_design_graph",
+        new=AsyncMock(return_value=mock_graph),
+    )
 
 
 class TestStartDesign:
@@ -30,11 +60,8 @@ class TestStartDesign:
         Verifica que start_design retorna un DesignResponse con status
         'approved' cuando el grafo se ejecuta correctamente.
         """
-        with patch(
-            "app.services.design_service.spring_design_graph"
-        ) as mock_graph:
-            mock_graph.invoke.return_value = mock_graph_final_state
-
+        mock_graph = _make_mock_graph(mock_graph_final_state)
+        with _patch_get_design_graph(mock_graph):
             from app.services.design_service import DesignService
 
             service = DesignService(db=mock_db_session)
@@ -65,11 +92,8 @@ class TestStartDesign:
         'needs_clarification' cuando el grafo no puede completar los
         requerimientos.
         """
-        with patch(
-            "app.services.design_service.spring_design_graph"
-        ) as mock_graph:
-            mock_graph.invoke.return_value = mock_graph_clarify_state
-
+        mock_graph = _make_mock_graph(mock_graph_clarify_state)
+        with _patch_get_design_graph(mock_graph):
             from app.services.design_service import DesignService
 
             service = DesignService(db=mock_db_session)
@@ -93,11 +117,15 @@ class TestStartDesign:
         grafo falla (el error se captura en la tarea background y se
         persiste en DB con status "error").
         """
-        with patch(
-            "app.services.design_service.spring_design_graph"
-        ) as mock_graph:
-            mock_graph.invoke.side_effect = RuntimeError("Graph crashed")
+        mock_graph = MagicMock()
 
+        async def _astream_raises(*_args, **_kwargs):
+            raise RuntimeError("Graph crashed")
+            yield  # pragma: no cover - makes this an async generator
+
+        mock_graph.astream = _astream_raises
+
+        with _patch_get_design_graph(mock_graph):
             from app.services.design_service import DesignService
 
             service = DesignService(db=mock_db_session)
@@ -123,11 +151,8 @@ class TestStartDesign:
         Verifica que start_design usa el session_id proporcionado en
         lugar de generar uno nuevo.
         """
-        with patch(
-            "app.services.design_service.spring_design_graph"
-        ) as mock_graph:
-            mock_graph.invoke.return_value = mock_graph_final_state
-
+        mock_graph = _make_mock_graph(mock_graph_final_state)
+        with _patch_get_design_graph(mock_graph):
             from app.services.design_service import DesignService
 
             service = DesignService(db=mock_db_session)
@@ -157,6 +182,10 @@ class TestClarifyDesign:
             id=2,
             session_id="session-123",
             raw_user_input="Original spring requirements",
+            final_report={
+                "status": "needs_clarification",
+                "clarification_questions": ["What is the load force?"],
+            },
         )
         scalar_mock = MagicMock()
         scalar_mock.scalar_one_or_none.return_value = project
@@ -164,17 +193,14 @@ class TestClarifyDesign:
         result_mock.scalars.return_value = scalar_mock
         mock_db_session.execute.return_value = result_mock
 
-        with patch(
-            "app.services.design_service.spring_design_graph"
-        ) as mock_graph:
-            mock_graph.invoke.return_value = mock_graph_final_state
-
+        mock_graph = _make_mock_graph(mock_graph_final_state)
+        with _patch_get_design_graph(mock_graph):
             from app.services.design_service import DesignService
 
             service = DesignService(db=mock_db_session)
             result = await service.clarify_design(
                 session_id="session-123",
-                answers="The load is 100N and OD max is 30mm.",
+                answers=["The load is 100N and OD max is 30mm."],
             )
 
         assert isinstance(result, DesignResponse)
@@ -200,11 +226,81 @@ class TestClarifyDesign:
         with pytest.raises(HTTPException) as exc_info:
             await service.clarify_design(
                 session_id="nonexistent",
-                answers="Some answers",
+                answers=["Some answer"],
             )
 
         assert exc_info.value.status_code == 404
         assert "not found" in exc_info.value.detail.casefold()
+
+
+class TestGetStepProgress:
+    """
+    Tests para DesignService.get_step_progress.
+
+    Regression coverage: when the graph pauses at ``interrupt()``, the raw
+    ``AgentState`` dict has an EXPLICIT ``final_report: None`` key (set by
+    ``initial_state()`` and never overwritten before the pause) —
+    ``final_state.get("final_report", {})`` returns ``None`` in that case
+    (the key exists), NOT the ``{}`` default, which crashed
+    ``report.get("status", ...)`` with ``AttributeError``. Must use
+    ``final_state.get("final_report") or {}`` instead.
+    """
+
+    async def test_interrupted_state_with_explicit_none_final_report(
+        self,
+        mock_db_session: AsyncMock,
+    ) -> None:
+        """
+        A cached ``final_state`` shaped exactly like the real interrupted
+        AgentState (``final_report`` key present but ``None``) must not
+        crash — it should report ``current_step`` from the cache in the
+        'processing' branch, since ``final_state`` here represents an
+        in-flight (not yet finished) run snapshot.
+        """
+        from app.services.design_service import DesignService, _status_cache
+
+        session_id = "session-progress-none-report"
+        _status_cache[session_id] = {
+            "current_step": "requirements_analyst",
+            "final_state": None,
+            "error": None,
+        }
+
+        service = DesignService(db=mock_db_session)
+        progress = await service.get_step_progress(session_id=session_id)
+
+        assert progress is not None
+        assert progress.status == "processing"
+        assert progress.current_step == "requirements_analyst"
+
+    async def test_final_state_with_explicit_none_final_report_does_not_crash(
+        self,
+        mock_db_session: AsyncMock,
+    ) -> None:
+        """
+        Directly exercises the bug: ``final_state`` present with
+        ``final_report: None`` (exact shape of a paused/interrupted
+        AgentState) must resolve to a safe default status, not raise.
+        """
+        from app.services.design_service import DesignService, _status_cache
+
+        session_id = "session-progress-crash-repro"
+        _status_cache[session_id] = {
+            "current_step": None,
+            "final_state": {
+                "current_step": "requirements_analyst",
+                "final_report": None,
+                "interrupted": True,
+            },
+            "error": None,
+        }
+
+        service = DesignService(db=mock_db_session)
+        progress = await service.get_step_progress(session_id=session_id)
+
+        assert progress is not None
+        assert progress.status == "completed"
+        assert progress.current_step == "requirements_analyst"
 
 
 class TestGetDesign:

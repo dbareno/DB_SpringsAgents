@@ -50,9 +50,15 @@ Thumbs.db
 # Database
 *.db
 *.sqlite3
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 # ChromaDB local storage
 chroma_data/
+
+# LangGraph checkpointer local storage (Phase 3 — multi-turn conversation)
+data/checkpoints/
 
 # Alembic
 alembic/versions/*.py

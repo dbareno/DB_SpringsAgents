@@ -3,6 +3,14 @@ app/services/design_service.py
 ─────────────────────────────────────────────────────────────────────────────
 Servicio de diseño que orquesta la interacción entre la API, el grafo de
 LangGraph y los repositorios de base de datos.
+
+Phase 3 — multi-turn conversation
+──────────────────────────────────
+``clarify_design`` no longer concatenates answers into the raw input and
+re-runs the ENTIRE graph from ``START``. Instead it resumes the checkpointed
+graph (keyed by ``thread_id = session_id``) from the exact ``interrupt()``
+call inside ``requirements_analyst_node`` via ``Command(resume=answers)``.
+See ``app/core/checkpointer.py`` and ``app/graph/workflow.get_design_graph``.
 """
 
 from __future__ import annotations
@@ -13,6 +21,7 @@ import uuid
 from typing import Any
 
 from fastapi import HTTPException, status
+from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.repositories.design_repository import (
@@ -20,7 +29,7 @@ from app.db.repositories.design_repository import (
     DesignProjectRepository,
 )
 from app.db.session import get_session_factory
-from app.graph.workflow import spring_design_graph
+from app.graph.workflow import get_design_graph
 from app.schemas.design import DesignResponse, StepProgress
 from app.schemas.state import initial_state
 
@@ -52,71 +61,6 @@ def _compute_progress_pct(current_step: str | None) -> int:
     if "redesign" in current_step or current_step == "increment_iteration":
         return 60
     return _STEP_PROGRESS_MAP.get(current_step, 0)
-
-
-# ── Mapeo de preguntas de clarificación a etiquetas explícitas ───────────
-# Cada patrón de pregunta se asocia a un label que el LLM entiende mejor
-# que el formato Q&A genérico.
-
-_CLARIFICATION_LABELS: list[tuple[str, str]] = [
-    # IMPORTANTE: keywords más específicas PRIMERO para evitar falsos positivos.
-    # "carga" aparece en "carga cíclica" y "fuerza de carga" — va al final.
-
-    # Carga cíclica (antes de "carga" para evitar falso positivo)
-    ("cíclica", "Cyclic load"),
-    ("fatiga", "Cyclic load"),
-    ("estática", "Cyclic load"),
-    ("repetitivo", "Cyclic load"),
-    # Ciclos de vida
-    ("ciclos de vida", "Cycles expected"),
-    ("ciclos esperados", "Cycles expected"),
-    # Tipo de resorte (compresión/tracción/torsión antes de "carga")
-    ("compresión", "Spring type"),
-    ("tracción", "Spring type"),
-    ("torsión", "Spring type"),
-    ("tipo de resorte", "Spring type"),
-    ("spring type", "Spring type"),
-    # Diámetro exterior
-    ("diámetro exterior", "Max outer diameter"),
-    ("outer diameter", "Max outer diameter"),
-    # Longitud libre
-    ("longitud libre", "Max free length"),
-    ("free length", "Max free length"),
-    # Temperatura
-    ("temperatura", "Operating temperature"),
-    ("temperature", "Operating temperature"),
-    ("operating temp", "Operating temperature"),
-    # Ambiente corrosivo
-    ("corrosivo", "Corrosion resistant"),
-    ("corrosión", "Corrosion resistant"),
-    # Deflexión (antes de "carga")
-    ("deflexión", "Deflection"),
-    ("deflection", "Deflection"),
-    # Carga/fuerza (al final porque "carga" es muy general)
-    ("newton", "Load force"),
-    ("newtons", "Load force"),
-    ("fuerza", "Load force"),
-    ("carga", "Load force"),
-]
-
-
-def _map_answers_to_labels(questions: list[str], answers: list[str]) -> list[str]:
-    """
-    Convierte preguntas y respuestas en etiquetas explícitas.
-
-    "¿Qué fuerza de carga...?" + "500N" → "Load force: 500 N"
-    "¿Cuánta deflexión...?" + "10mm"   → "Deflection: 10 mm"
-    """
-    result: list[str] = []
-    for i, answer in enumerate(answers):
-        question = questions[i].lower() if i < len(questions) else ""
-        label = "Specification"
-        for keyword, mapped_label in _CLARIFICATION_LABELS:
-            if keyword in question:
-                label = mapped_label
-                break
-        result.append(f"{label}: {answer}")
-    return result
 
 
 class DesignService:
@@ -185,6 +129,19 @@ class DesignService:
     ) -> DesignResponse:
         """
         Reanuda un flujo de diseño luego de que el usuario respondió preguntas.
+
+        Phase 3: en lugar de concatenar las respuestas al input crudo y
+        re-ejecutar el grafo completo desde ``START``, esto RESUME el grafo
+        checkpointeado desde el punto exacto del ``interrupt()`` (dentro de
+        ``requirements_analyst_node``) vía ``Command(resume=answers_dict)``
+        sobre el mismo ``thread_id = session_id``. El historial de turnos
+        previos persiste en el checkpoint — no se vuelve a ejecutar nada
+        aguas arriba del punto de interrupción.
+
+        NOTA: ``requirements_analyst_node`` fusiona estas respuestas con su
+        propio ``session_answers`` acumulado (leído de ``state`` al
+        re-ejecutarse) — este servicio solo necesita enviar las respuestas
+        de ESTE turno, sin leer el checkpoint primero.
         """
         project = await self._project_repo.get_by_session_id(session_id)
         if project is None:
@@ -193,19 +150,15 @@ class DesignService:
                 detail=f"Session '{session_id}' not found.",
             )
 
-        # Recuperar preguntas originales para emparejar con respuestas
+        # Recuperar preguntas del último interrupt para emparejar por índice
+        # con las respuestas (el frontend sigue enviando answers: string[],
+        # en el mismo orden que las preguntas mostradas).
         final_report = project.final_report or {}
         prev_questions: list[str] = final_report.get("clarification_questions", [])
-
-        # Construir input combinado con etiquetas explícitas para que el LLM
-        # pueda extraer los valores sin depender del formato Q&A
-        labels = _map_answers_to_labels(prev_questions, answers)
-        details = "\n".join(f"  - {label}" for label in labels)
-        combined_input = (
-            f"{project.raw_user_input}\n\n"
-            f"--- Especificaciones adicionales proporcionadas ---\n"
-            f"{details}\n"
-        )
+        answers_dict = {
+            (prev_questions[i] if i < len(prev_questions) else f"Q{i + 1}"): answer
+            for i, answer in enumerate(answers)
+        }
 
         # Inicializar cache de progreso
         _status_cache[session_id] = {
@@ -214,9 +167,9 @@ class DesignService:
             "error": None,
         }
 
-        # Iniciar grafo en background con su PROPIA sesión
+        # Reanudar el grafo checkpointeado en background con su PROPIA sesión
         asyncio.create_task(
-            _run_graph_and_persist(session_id, combined_input)
+            _resume_graph_and_persist(session_id, answers_dict)
         )
 
         return DesignResponse(
@@ -244,7 +197,7 @@ class DesignService:
             error = cached.get("error")
 
             if final_state is not None:
-                report = final_state.get("final_report", {})
+                report = final_state.get("final_report") or {}
                 graph_status = report.get("status", "completed")
                 step = final_state.get("current_step")
                 del _status_cache[session_id]
@@ -288,100 +241,184 @@ class DesignService:
 # ── Funciones de ejecución en background ─────────────────────────────────
 
 
+def _make_config(session_id: str) -> dict[str, Any]:
+    """Config de LangGraph con thread_id = session_id (clave del checkpoint)."""
+    return {"configurable": {"thread_id": session_id}}
+
+
+def _extract_interrupt_questions(result: dict[str, Any]) -> list[str] | None:
+    """
+    Si ``result`` contiene un ``__interrupt__`` (el grafo se pausó dentro de
+    ``requirements_analyst_node``), retorna la lista de preguntas de
+    clarificación del payload del interrupt. Retorna ``None`` si el grafo
+    terminó normalmente (sin pausas).
+    """
+    interrupts = result.get("__interrupt__")
+    if not interrupts:
+        return None
+    # Un solo interrupt por nodo en este grafo (requirements_analyst_node
+    # llama interrupt() una vez por ronda) — tomar el primero.
+    payload = interrupts[0].value
+    if isinstance(payload, dict):
+        return list(payload.get("questions", []))
+    return []
+
+
+async def _stream_graph(
+    session_id: str,
+    graph_input: Any,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Corre ``graph.astream(graph_input, config, stream_mode="values")``,
+    actualizando ``_status_cache[session_id]["current_step"]`` en cada paso
+    (para el polling de progreso), y retorna el ÚLTIMO valor emitido —
+    que incluye ``__interrupt__`` si el grafo se pausó.
+    """
+    graph = await get_design_graph()
+    final_state: dict[str, Any] = {}
+    async for event in graph.astream(graph_input, config, stream_mode="values"):
+        if not isinstance(event, dict):
+            continue
+        current_step = event.get("current_step")
+        if current_step:
+            cached = _status_cache.get(session_id)
+            if cached is not None:
+                cached["current_step"] = current_step
+        final_state = event
+    return final_state
+
+
 async def _run_graph_and_persist(
     session_id: str,
     user_input: str,
     max_iterations: int = 5,
 ) -> None:
     """
-    Ejecuta el grafo de LangGraph en un executor con streaming de progreso
-    y persiste los resultados al terminar.
+    Ejecuta el grafo de LangGraph (checkpointeado) desde ``START`` y persiste
+    los resultados al terminar — o el estado ``needs_clarification`` si el
+    grafo se pausó en un ``interrupt()``.
 
     Corre como tarea asíncrona en background (asyncio.create_task).
     Crea su PROPIA sesión de base de datos porque la del request
     ya se cerró cuando el endpoint retornó.
     """
     state = initial_state(user_input, max_iterations=max_iterations)
-    loop = asyncio.get_event_loop()
-
-    def run_graph_with_progress() -> dict[str, Any]:
-        """Corre el grafo con stream() y actualiza el cache en cada paso."""
-        final_state: dict[str, Any] = {}
-        try:
-            for event in spring_design_graph.stream(
-                state,
-                stream_mode="values",
-            ):
-                if not isinstance(event, dict):
-                    continue
-                current_step = event.get("current_step")
-                if current_step:
-                    cached = _status_cache.get(session_id)
-                    if cached is not None:
-                        cached["current_step"] = current_step
-                final_state = event
-            return final_state
-        except Exception as exc:
-            logger.error(
-                "[DesignService] Graph execution failed for %s: %s",
-                session_id,
-                exc,
-            )
-            cached = _status_cache.get(session_id)
-            if cached is not None:
-                cached["error"] = str(exc)
-            raise
+    config = _make_config(session_id)
 
     try:
-        final_state = await loop.run_in_executor(None, run_graph_with_progress)
+        result = await _stream_graph(session_id, state, config)
+        await _persist_graph_result(session_id, result)
+    except Exception as exc:
+        await _persist_graph_error(session_id, exc)
 
-        # Persistir resultados en DB (sesión propia)
+
+async def _resume_graph_and_persist(
+    session_id: str,
+    answers: dict[str, str],
+) -> None:
+    """
+    RESUME el grafo checkpointeado desde el punto exacto de ``interrupt()``
+    usando ``Command(resume=answers)`` sobre el mismo ``thread_id``.
+
+    ``requirements_analyst_node`` recibe ``answers`` como el valor de
+    retorno de su llamada a ``interrupt()`` y las fusiona con su propio
+    ``session_answers`` acumulado — este servicio no necesita leer el
+    checkpoint primero.
+
+    Reemplaza el viejo patrón de concatenar respuestas al input crudo y
+    re-ejecutar el grafo completo desde ``START`` (Phase 3).
+    """
+    config = _make_config(session_id)
+
+    try:
+        result = await _stream_graph(session_id, Command(resume=answers), config)
+        await _persist_graph_result(session_id, result)
+    except Exception as exc:
+        await _persist_graph_error(session_id, exc)
+
+
+async def _persist_graph_result(session_id: str, result: dict[str, Any]) -> None:
+    """
+    Persiste el resultado de una invocación (o resume) del grafo.
+
+    Si ``result`` contiene ``__interrupt__``, el grafo está PAUSADO esperando
+    respuestas — se persiste como ``needs_clarification`` con las preguntas
+    del interrupt (NO se llama a _finalize_project/_save_iterations, porque
+    no hay ``final_report`` real todavía; el checkpoint conserva el estado
+    completo para el próximo resume).
+    """
+    interrupt_questions = _extract_interrupt_questions(result)
+
+    factory = await get_session_factory()
+    async with factory() as db:
+        project_repo = DesignProjectRepository(db)
+        iteration_repo = DesignIterationRepository(db)
+
+        if interrupt_questions is not None:
+            partial_requirements = (
+                result["__interrupt__"][0].value.get("partial_requirements", {})
+                if isinstance(result["__interrupt__"][0].value, dict)
+                else {}
+            )
+            await project_repo.update_status(
+                session_id=session_id,
+                status="needs_clarification",
+                final_report={
+                    "status": "needs_clarification",
+                    "clarification_questions": interrupt_questions,
+                    "partial_requirements": partial_requirements,
+                },
+                total_iterations=result.get("iteration_count", 0),
+            )
+        else:
+            await _save_iterations(project_repo, iteration_repo, session_id, result)
+            await _finalize_project(project_repo, session_id, result)
+
+        await db.commit()
+
+    # Actualizar cache de progreso para que el polling detecte el fin del run.
+    cached = _status_cache.get(session_id)
+    if cached is not None:
+        cached["final_state"] = result
+
+    logger.info(
+        "[DesignService] Graph run finished for %s. Interrupted=%s, status=%s",
+        session_id,
+        interrupt_questions is not None,
+        (result.get("final_report") or {}).get(
+            "status", "needs_clarification" if interrupt_questions else "unknown"
+        ),
+    )
+
+
+async def _persist_graph_error(session_id: str, exc: Exception) -> None:
+    """Persiste un error de ejecución del grafo (invoke o resume)."""
+    logger.error(
+        "[DesignService] Graph execution failed for %s: %s",
+        session_id,
+        exc,
+    )
+    cached = _status_cache.get(session_id)
+    if cached is not None:
+        cached["error"] = str(exc)
+
+    try:
         factory = await get_session_factory()
         async with factory() as db:
             project_repo = DesignProjectRepository(db)
-            iteration_repo = DesignIterationRepository(db)
-
-            await _save_iterations(project_repo, iteration_repo, session_id, final_state)
-            await _finalize_project(project_repo, session_id, final_state)
-            await db.commit()
-
-        # Marcar como completado en cache
-        cached = _status_cache.get(session_id)
-        if cached is not None:
-            cached["final_state"] = final_state
-
-        logger.info(
-            "[DesignService] Graph completed for %s. Status: %s",
-            session_id,
-            final_state.get("final_report", {}).get("status", "unknown"),
-        )
-    except Exception as exc:
-        logger.error(
-            "[DesignService] Background task failed for %s: %s",
-            session_id,
-            exc,
-        )
-        cached = _status_cache.get(session_id)
-        if cached is not None:
-            cached["error"] = str(exc)
-
-        # Intentar persistir el error en DB
-        try:
-            factory = await get_session_factory()
-            async with factory() as db:
-                project_repo = DesignProjectRepository(db)
-                await project_repo.update_status(
-                    session_id=session_id,
-                    status="error",
-                    final_report={"status": "error", "message": str(exc)},
-                )
-                await db.commit()
-        except Exception as db_exc:
-            logger.error(
-                "[DesignService] DB update also failed for %s: %s",
-                session_id,
-                db_exc,
+            await project_repo.update_status(
+                session_id=session_id,
+                status="error",
+                final_report={"status": "error", "message": str(exc)},
             )
+            await db.commit()
+    except Exception as db_exc:
+        logger.error(
+            "[DesignService] DB update also failed for %s: %s",
+            session_id,
+            db_exc,
+        )
 
 
 async def _save_iterations(

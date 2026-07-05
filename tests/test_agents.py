@@ -166,25 +166,43 @@ class TestAgent1Requirements:
 
     def test_incomplete_input_missing_force(self) -> None:
         """
-        Verifica que cuando faltan campos criticos el agente retorna
-        is_complete=False con preguntas de clarificacion.
+        Verifica que cuando faltan campos criticos el agente PAUSA el grafo
+        (interrupt()) con las preguntas de clarificacion, en lugar de
+        retornar un dict terminal con is_complete=False.
+
+        ``interrupt()`` requires an actual LangGraph runnable context (it
+        calls ``get_config()`` internally), so this test runs the node
+        through a minimal one-node graph with an in-memory checkpointer
+        instead of calling ``requirements_analyst_node(state)`` directly.
         """
         self._setup_llm(self.INCOMPLETE_JSON)
 
+        from langgraph.checkpoint.memory import InMemorySaver
+        from langgraph.graph import END, START, StateGraph
+
         from app.agents.agent1_requirements import requirements_analyst_node
+        from app.schemas.state import AgentState as _AgentState
+
+        builder = StateGraph(_AgentState)
+        builder.add_node("requirements_analyst", requirements_analyst_node)
+        builder.add_edge(START, "requirements_analyst")
+        builder.add_edge("requirements_analyst", END)
+        graph = builder.compile(checkpointer=InMemorySaver())
 
         state = _make_agent_state(
             _raw_input="I need a spring for a pen",
         )
-        result = requirements_analyst_node(state)
+        config = {"configurable": {"thread_id": "test-incomplete"}}
+        result = graph.invoke(state, config)
 
-        req: UserRequirements = result["requirements"]
-        assert req.is_complete is False
+        assert "__interrupt__" in result
+        payload = result["__interrupt__"][0].value
+        assert payload["type"] == "clarification_needed"
         # _determine_completeness generates questions for ALL missing fields
         # (type, force, deflection, rate, OD, free length, temp)
-        assert len(req.clarification_questions) == 7
-        assert "tipo de resorte" in req.clarification_questions[0].lower()
-        assert "fuerza" in req.clarification_questions[1].lower()
+        assert len(payload["questions"]) == 7
+        assert "tipo de resorte" in payload["questions"][0].lower()
+        assert "fuerza" in payload["questions"][1].lower()
 
     def test_invalid_json_returns_error(self) -> None:
         """
