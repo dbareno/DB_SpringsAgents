@@ -100,6 +100,13 @@ class Settings(BaseSettings):
         description="Hard cap on redesign loop cycles",
     )
 
+    # ── Offline mode (ADR-6) ───────────────────────────────────────────────
+    offline_mode: bool = Field(
+        False,
+        alias="OFFLINE_MODE",
+        description="Disable cloud providers; use local Ollama only (for .exe)",
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -135,6 +135,10 @@ class ComplianceReport(BaseModel):
         default_factory=list,
         description="Actionable redesign hints for Agent 2 if rejected",
     )
+    redesign_rationale: str | None = Field(
+        None,
+        description="Phase 6 (ADR-6): LLM-generated rationale grounded in failure modes, for agent autonomy",
+    )
     retrieved_standards: list[str] = Field(
         default_factory=list,
         description="Normative clause text retrieved from ChromaDB for this validation",
@@ -170,6 +174,11 @@ class CommercialScore(BaseModel):
     price_tiers: list[dict] = Field(
         default_factory=list,
         description="List of pricing tiers by quantity bracket"
+    )
+    # Phase 6: Per-option rationale (ADR-6)
+    rationale: str | None = Field(
+        None,
+        description="LLM-generated short explanation: cost vs durability vs compactness trade-off",
     )
 
 

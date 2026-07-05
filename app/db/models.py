@@ -91,6 +91,17 @@ class DesignProject(Base):
         comment="Cost parameters (setup_cost, margin, tiers) used at quote generation time for reproducibility"
     )
     total_iterations: Mapped[int] = mapped_column(Integer, default=0)
+    # Phase 6 (ADR-7): Outcome tagging and design history
+    outcome: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+        comment="won | lost | pending — tracks success of this design (for learning)",
+    )
+    requirement_embedding_key: Mapped[str | None] = mapped_column(
+        String(256),
+        nullable=True,
+        comment="Hash/key of normalized requirements for similarity search",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow
     )
@@ -104,7 +115,7 @@ class DesignProject(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<DesignProject id={self.id} status={self.status!r}>"
+        return f"<DesignProject id={self.id} status={self.status!r} outcome={self.outcome!r}>"
 
 
 class DesignIteration(Base):

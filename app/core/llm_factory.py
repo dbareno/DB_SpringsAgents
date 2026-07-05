@@ -176,7 +176,12 @@ class LLMFactory:
 
     def __init__(self) -> None:
         self._settings = get_settings()
-        self._priority_order: list[str] = self._settings.llm_priority_order
+        # ADR-6: offline_mode forces local Ollama only
+        if self._settings.offline_mode:
+            self._priority_order: list[str] = ["ollama"]
+            logger.info("[LLMFactory] OFFLINE_MODE enabled: using Ollama only")
+        else:
+            self._priority_order = self._settings.llm_priority_order
         self._current_index: int = 0
         self._failed: list[str] = []
         self._temperature: float = self._settings.llm_temperature

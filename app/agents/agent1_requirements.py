@@ -31,6 +31,7 @@ from langgraph.types import interrupt
 
 from app.core.llm_factory import get_factory, rotate_llm_on_quota_error
 from app.schemas.state import AgentState, SpringType, UserRequirements
+from app.schemas.structured_output import validate_requirement_extraction
 
 logger = logging.getLogger(__name__)
 
@@ -650,6 +651,18 @@ def _extract_requirements(
                 raw_json = raw_json.split("```")[1].lstrip("json").strip()
 
             data = json.loads(raw_json)
+
+            # ── ADR-6: Validate structured output with best-effort fallback ────
+            # strict=False allows field coercion and filling when LLM omits fields
+            is_schema_valid, cleaned_data, schema_errors = validate_requirement_extraction(
+                data, strict=False
+            )
+            if schema_errors:
+                logger.warning(
+                    "[Agent 1] Schema validation issues (non-strict): %s",
+                    "; ".join(schema_errors)
+                )
+            data = cleaned_data
 
             # ── Override: programmatic completeness, not LLM's guess ──────
             # Pass raw_input so regex fallback can extract values the LLM missed
